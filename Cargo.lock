@@ -109,6 +109,59 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "athena-clock"
+version = "0.1.0"
+dependencies = [
+ "athena-core",
+ "athena-ports",
+ "chrono",
+ "tokio",
+]
+
+[[package]]
+name = "athena-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "athena-matching"
+version = "0.1.0"
+dependencies = [
+ "athena-core",
+ "athena-ports",
+ "rust_decimal",
+]
+
+[[package]]
+name = "athena-ports"
+version = "0.1.0"
+dependencies = [
+ "athena-core",
+ "chrono",
+ "rust_decimal",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "athena-risk"
+version = "0.1.0"
+dependencies = [
+ "athena-core",
+ "athena-ports",
+ "log",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "uuid",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -302,9 +355,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "exchange_sim"
+name = "exchange-sim"
 version = "0.1.0"
 dependencies = [
+ "athena-clock",
+ "athena-core",
+ "athena-matching",
+ "athena-ports",
+ "athena-risk",
  "chrono",
  "dashmap",
  "env_logger",

@@ -1,0 +1,10 @@
+[package]
+name = "athena-matching"
+version.workspace = true
+edition.workspace = true
+description = "Matching algorithm implementations for Athena trading system"
+
+[dependencies]
+athena-core.workspace = true
+athena-ports.workspace = true
+rust_decimal.workspace = true

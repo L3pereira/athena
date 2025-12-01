@@ -1,0 +1,17 @@
+[package]
+name = "athena-core"
+version.workspace = true
+edition.workspace = true
+description = "Core domain types for Athena trading system"
+
+[dependencies]
+# Serialization
+serde.workspace = true
+
+# Identifiers & time
+uuid.workspace = true
+chrono.workspace = true
+
+# Decimal precision
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true

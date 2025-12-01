@@ -1,0 +1,30 @@
+[package]
+name = "exchange-sim"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Internal crates
+athena-core.workspace = true
+athena-ports.workspace = true
+athena-matching.workspace = true
+athena-clock.workspace = true
+athena-risk.workspace = true
+
+# External dependencies
+tokio.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+env_logger.workspace = true
+dashmap.workspace = true
+priority-queue.workspace = true
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+
+[[test]]
+name = "integration_tests"
+path = "tests/integration_tests.rs"
