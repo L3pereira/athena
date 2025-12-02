@@ -8,6 +8,13 @@ members = [
     "crates/shared/clock",
     "crates/shared/risk",
 
+    # Infrastructure
+    "crates/gateway",
+    "crates/strategy",
+    "crates/order-manager",
+    "crates/risk-manager",
+    "crates/runner",
+
     # Bounded contexts
     "crates/exchange-sim",
 ]
@@ -52,3 +59,10 @@ athena-ports = { path = "crates/shared/ports" }
 athena-matching = { path = "crates/shared/matching" }
 athena-clock = { path = "crates/shared/clock" }
 athena-risk = { path = "crates/shared/risk" }
+
+# Infrastructure
+athena-gateway = { path = "crates/gateway" }
+athena-strategy = { path = "crates/strategy" }
+athena-order-manager = { path = "crates/order-manager" }
+athena-risk-manager = { path = "crates/risk-manager" }
+athena-runner = { path = "crates/runner" }

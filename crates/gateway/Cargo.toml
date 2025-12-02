@@ -1,0 +1,35 @@
+[package]
+name = "athena-gateway"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Gateway layer for Athena - normalizes external exchange data and routes internal messages"
+
+[dependencies]
+# Internal crates
+athena-core.workspace = true
+
+# Async runtime
+tokio.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+
+# Serialization (bincode for future wire format)
+serde.workspace = true
+bincode = "1.3"
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+
+# Async traits
+async-trait = "0.1"
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+log.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+exchange-sim = { path = "../exchange-sim" }
+env_logger = "0.11"

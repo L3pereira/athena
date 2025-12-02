@@ -1,0 +1,47 @@
+[package]
+name = "athena-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Simulation orchestrator - multi-agent trading simulation with bootstrap, event feeds, and agent runners"
+
+[dependencies]
+# Internal crates
+athena-core.workspace = true
+athena-gateway.workspace = true
+athena-strategy.workspace = true
+athena-order-manager.workspace = true
+athena-risk-manager.workspace = true
+exchange-sim = { path = "../exchange-sim" }
+
+# Async runtime
+tokio.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+
+# Data structures
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Async traits
+async-trait = "0.1"
+
+# Logging
+log.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Random for event feed
+rand = "0.8"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+env_logger = "0.11"
+
+[[test]]
+name = "multi_agent_simulation"
+path = "tests/multi_agent_simulation.rs"

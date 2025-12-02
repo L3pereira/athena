@@ -109,6 +109,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "async-trait"
+version = "0.1.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
+]
+
+[[package]]
 name = "athena-clock"
 version = "0.1.0"
 dependencies = [
@@ -130,12 +141,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "athena-gateway"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athena-core",
+ "bincode",
+ "chrono",
+ "env_logger",
+ "exchange-sim",
+ "log",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "athena-matching"
 version = "0.1.0"
 dependencies = [
  "athena-core",
  "athena-ports",
  "rust_decimal",
+]
+
+[[package]]
+name = "athena-order-manager"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athena-core",
+ "athena-gateway",
+ "athena-risk-manager",
+ "chrono",
+ "env_logger",
+ "log",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "thiserror",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -162,6 +211,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "athena-risk-manager"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athena-core",
+ "athena-gateway",
+ "chrono",
+ "env_logger",
+ "log",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "athena-runner"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athena-core",
+ "athena-gateway",
+ "athena-order-manager",
+ "athena-risk-manager",
+ "athena-strategy",
+ "chrono",
+ "env_logger",
+ "exchange-sim",
+ "log",
+ "rand",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "athena-strategy"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "athena-core",
+ "athena-gateway",
+ "chrono",
+ "env_logger",
+ "exchange-sim",
+ "log",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "serde",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -180,6 +288,15 @@ dependencies = [
  "object",
  "rustc-demangle",
  "windows-targets",
+]
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -872,18 +989,28 @@ checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
 name = "serde"
-version = "1.0.219"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.219"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
