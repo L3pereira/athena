@@ -80,6 +80,7 @@ fn test_event_feed_generates_events() {
 
 /// Test event feed fair value tracking
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn test_event_feed_fair_value_tracking() {
     let mut config = EventFeedConfig::default();
     config.sentiment_probability = 0.0; // Only fair value events
@@ -139,9 +140,11 @@ fn test_mean_reversion_config() {
 /// Test simulation with custom event feed
 #[tokio::test]
 async fn test_simulation_with_event_feed() {
-    let mut event_config = EventFeedConfig::default();
-    event_config.price_volatility = dec!(0.001); // Higher volatility for testing
-    event_config.sentiment_probability = 0.1; // 10% sentiment events
+    let event_config = EventFeedConfig {
+        price_volatility: dec!(0.001), // Higher volatility for testing
+        sentiment_probability: 0.1,    // 10% sentiment events
+        ..Default::default()
+    };
 
     let config = SimulationConfig {
         event_feed: event_config,

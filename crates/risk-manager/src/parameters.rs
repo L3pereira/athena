@@ -59,10 +59,10 @@ impl TradingRiskParameters {
         }
 
         // Check market quality
-        if let Some(mq) = self.market_quality.get(instrument_id) {
-            if !mq.tradeable {
-                return false;
-            }
+        if let Some(mq) = self.market_quality.get(instrument_id)
+            && !mq.tradeable
+        {
+            return false;
         }
 
         true

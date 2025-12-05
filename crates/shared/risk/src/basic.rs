@@ -293,7 +293,7 @@ impl RiskManager for BasicRiskManager {
         let max_from_margin = account.available_balance / (price * self.config.initial_margin_rate);
 
         // Apply position size limit if configured
-        let max_size = match self.config.max_position_size {
+        match self.config.max_position_size {
             Some(limit) => {
                 // Account for existing position
                 let existing = account
@@ -311,9 +311,7 @@ impl RiskManager for BasicRiskManager {
                 (limit - existing).max(Decimal::ZERO).min(max_from_margin)
             }
             None => max_from_margin,
-        };
-
-        max_size
+        }
     }
 }
 

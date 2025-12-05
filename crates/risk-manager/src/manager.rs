@@ -167,12 +167,11 @@ impl TradingRiskManager {
         self.peak_pnl = Decimal::ZERO;
 
         // Resume trading if halted due to daily limits
-        if self.trading_halted {
-            if let Some(reason) = &self.halt_reason {
-                if reason.contains("Daily") {
-                    self.resume_trading();
-                }
-            }
+        if self.trading_halted
+            && let Some(reason) = &self.halt_reason
+            && reason.contains("Daily")
+        {
+            self.resume_trading();
         }
     }
 

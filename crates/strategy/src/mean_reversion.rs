@@ -186,10 +186,10 @@ impl Strategy for MeanReversionTaker {
             self.order_book.apply_update(update);
 
             // Generate signal if we have fair value
-            if self.fair_value.is_some() {
-                if let Some(action) = self.generate_signal() {
-                    return vec![action];
-                }
+            if self.fair_value.is_some()
+                && let Some(action) = self.generate_signal()
+            {
+                return vec![action];
             }
         }
 

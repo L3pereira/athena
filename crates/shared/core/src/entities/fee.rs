@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use crate::instruments::InstrumentId;
 
 /// Fee tier based on trading volume or VIP level
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum FeeTier {
     /// Default tier for new users
+    #[default]
     Standard,
     /// VIP tier with reduced fees
     Vip1,
@@ -14,12 +15,6 @@ pub enum FeeTier {
     Vip3,
     /// Market maker tier (negative maker fees = rebates)
     MarketMaker,
-}
-
-impl Default for FeeTier {
-    fn default() -> Self {
-        Self::Standard
-    }
 }
 
 /// Fee structure for an instrument

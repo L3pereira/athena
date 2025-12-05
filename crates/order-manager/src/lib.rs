@@ -63,6 +63,7 @@ pub mod execution;
 pub mod position;
 pub mod risk;
 pub mod signal;
+pub mod tca;
 
 // Re-export main types
 pub use aggregator::{PortfolioTarget, SignalAggregator};
@@ -74,3 +75,41 @@ pub use execution::{
 pub use position::{Fill, PositionTracker, StrategyPosition};
 pub use risk::{RiskResult, RiskValidator, RiskViolation};
 pub use signal::{Signal, Urgency};
+
+// TCA module re-exports
+pub use tca::{
+    // Models
+    AlmgrenChrissModel,
+    AlmgrenChrissParams,
+    // Benchmarks
+    Benchmark,
+    BenchmarkType,
+    // Calibration
+    CalibrationConfig,
+    CalibrationResult,
+    ExecutionBenchmarks,
+    // Measurement
+    ExecutionRecord,
+    // Scheduler
+    ExecutionSchedule,
+    ExecutionScheduler,
+    ImpactCalibrator,
+    ImpactModel,
+    KyleModel,
+    KyleParams,
+    MarketImpact,
+    // Common types
+    MarketState,
+    OrderSpec,
+    ScheduleSlice,
+    SchedulerConfig,
+    SchedulerType,
+    SquareRootModel,
+    SquareRootParams,
+    // Estimator
+    TcaEstimate,
+    TcaEstimator,
+    TcaEstimatorConfig,
+    TcaMeasurement,
+    TcaMetrics,
+};

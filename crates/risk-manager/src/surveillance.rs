@@ -251,40 +251,40 @@ impl BasicSurveillance {
         // Collect alerts first to avoid borrow issues
         let mut new_alerts = Vec::new();
 
-        if let Some(history) = self.spread_history.get(instrument_id) {
-            if let Some(latest) = history.back() {
-                // Check for very wide spread
-                let avg_spread = self.calculate_avg_spread(history);
-                if latest.spread_bps > avg_spread * dec!(3) {
-                    new_alerts.push(SurveillanceAlert {
-                        alert_type: AlertType::AbnormalSpread,
-                        instrument_id: instrument_id.to_string(),
-                        severity: AlertSeverity::Warning,
-                        description: format!(
-                            "Spread {:.2} bps is 3x normal ({:.2} bps)",
-                            latest.spread_bps, avg_spread
-                        ),
-                        timestamp: now,
-                        expires_at: Some(now + self.config.alert_expiry),
-                    });
-                }
+        if let Some(history) = self.spread_history.get(instrument_id)
+            && let Some(latest) = history.back()
+        {
+            // Check for very wide spread
+            let avg_spread = self.calculate_avg_spread(history);
+            if latest.spread_bps > avg_spread * dec!(3) {
+                new_alerts.push(SurveillanceAlert {
+                    alert_type: AlertType::AbnormalSpread,
+                    instrument_id: instrument_id.to_string(),
+                    severity: AlertSeverity::Warning,
+                    description: format!(
+                        "Spread {:.2} bps is 3x normal ({:.2} bps)",
+                        latest.spread_bps, avg_spread
+                    ),
+                    timestamp: now,
+                    expires_at: Some(now + self.config.alert_expiry),
+                });
+            }
 
-                // Check for liquidity drain
-                let avg_size = self.calculate_avg_tob_size(history);
-                if latest.tob_size < avg_size * self.config.shallow_depth_ratio {
-                    new_alerts.push(SurveillanceAlert {
-                        alert_type: AlertType::LiquidityDrain,
-                        instrument_id: instrument_id.to_string(),
-                        severity: AlertSeverity::Warning,
-                        description: format!(
-                            "TOB size {:.4} is {:.0}% of normal",
-                            latest.tob_size,
-                            (latest.tob_size / avg_size * dec!(100))
-                        ),
-                        timestamp: now,
-                        expires_at: Some(now + self.config.alert_expiry),
-                    });
-                }
+            // Check for liquidity drain
+            let avg_size = self.calculate_avg_tob_size(history);
+            if latest.tob_size < avg_size * self.config.shallow_depth_ratio {
+                new_alerts.push(SurveillanceAlert {
+                    alert_type: AlertType::LiquidityDrain,
+                    instrument_id: instrument_id.to_string(),
+                    severity: AlertSeverity::Warning,
+                    description: format!(
+                        "TOB size {:.4} is {:.0}% of normal",
+                        latest.tob_size,
+                        (latest.tob_size / avg_size * dec!(100))
+                    ),
+                    timestamp: now,
+                    expires_at: Some(now + self.config.alert_expiry),
+                });
             }
         }
 

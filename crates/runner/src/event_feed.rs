@@ -194,6 +194,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_fair_value_random_walk() {
         let mut config = EventFeedConfig::default();
         config.sentiment_probability = 0.0; // Only fair value events
