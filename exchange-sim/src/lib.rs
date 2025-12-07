@@ -40,9 +40,10 @@ pub mod presentation;
 
 // Re-export commonly used types
 pub use domain::{
-    Clock, ControllableClock, ExchangeEvent, FeeSchedule, Instrument, InstrumentStatus, Order,
-    OrderBook, OrderId, OrderStatus, OrderType, Price, Quantity, Side, Symbol, TimeInForce,
-    TimeScale, Timestamp, Trade, TradeId, TradingPairConfig,
+    Clock, ControllableClock, ExchangeEvent, FeeSchedule, Instrument, InstrumentStatus,
+    MarginCalculator, Order, OrderBook, OrderId, OrderStatus, OrderType, Price, Quantity, Side,
+    StandardMarginCalculator, Symbol, TimeInForce, TimeScale, Timestamp, Trade, TradeId,
+    TradingPairConfig,
 };
 
 pub use infrastructure::{

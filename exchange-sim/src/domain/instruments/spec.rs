@@ -12,6 +12,17 @@ pub trait InstrumentSpec: Send + Sync {
     /// Minimum quantity increment
     fn lot_size(&self) -> Quantity;
 
+    /// Base asset (e.g., BTC in BTCUSDT)
+    fn base_asset(&self) -> &str;
+
+    /// Quote/settlement asset (e.g., USDT in BTCUSDT)
+    fn quote_asset(&self) -> &str;
+
+    /// Whether this is a derivative instrument
+    fn is_derivative(&self) -> bool {
+        false
+    }
+
     /// Margin requirement (as decimal, e.g., 0.01 = 1%)
     fn margin_requirement(&self) -> Decimal {
         Decimal::ONE // 100% margin (no leverage) by default

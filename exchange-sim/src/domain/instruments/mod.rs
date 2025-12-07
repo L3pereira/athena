@@ -30,15 +30,7 @@ pub enum Instrument {
 }
 
 impl Instrument {
-    pub fn symbol(&self) -> &str {
-        match self {
-            Instrument::Spot(i) => i.symbol(),
-            Instrument::Perpetual(i) => i.symbol(),
-            Instrument::Future(i) => i.symbol(),
-            Instrument::Option(i) => i.symbol(),
-        }
-    }
-
+    /// Get underlying spec for polymorphic operations
     pub fn as_spec(&self) -> &dyn InstrumentSpec {
         match self {
             Instrument::Spot(i) => i,
@@ -48,45 +40,25 @@ impl Instrument {
         }
     }
 
+    // Delegate all common operations to the trait
+    pub fn symbol(&self) -> &str {
+        self.as_spec().symbol()
+    }
+
+    pub fn base_asset(&self) -> &str {
+        self.as_spec().base_asset()
+    }
+
+    pub fn quote_asset(&self) -> &str {
+        self.as_spec().quote_asset()
+    }
+
     pub fn is_derivative(&self) -> bool {
-        !matches!(self, Instrument::Spot(_))
+        self.as_spec().is_derivative()
     }
 
     pub fn is_shortable(&self) -> bool {
         self.as_spec().is_shortable()
-    }
-
-    /// Get the base asset (e.g., BTC in BTCUSDT)
-    pub fn base_asset(&self) -> &str {
-        match self {
-            Instrument::Spot(i) => &i.base,
-            Instrument::Perpetual(i) => &i.underlying,
-            Instrument::Future(i) => &i.underlying,
-            Instrument::Option(i) => &i.underlying,
-        }
-    }
-
-    /// Get the quote/settlement asset (e.g., USDT in BTCUSDT)
-    /// For derivatives, returns "USDT" for linear contracts and the underlying for inverse
-    pub fn quote_asset(&self) -> &str {
-        match self {
-            Instrument::Spot(i) => &i.quote,
-            Instrument::Perpetual(i) => {
-                if i.is_inverse {
-                    &i.underlying
-                } else {
-                    "USDT"
-                }
-            }
-            Instrument::Future(i) => {
-                if i.is_inverse {
-                    &i.underlying
-                } else {
-                    "USDT"
-                }
-            }
-            Instrument::Option(_) => "USDT", // Options typically settle in USDT
-        }
     }
 }
 

@@ -20,9 +20,9 @@ pub use events::{
 
 // Re-export services
 pub use services::{
-    AgentTimeView, Clock, ClockSource, ControllableClock, DriftingClock, ExchangeClock,
-    ExternalClockAdapter, NetworkSim, NtpSyncEvent, OrderValidator, TimeScale, TimeUpdate,
-    WorldClock,
+    AccountMarginCalculator, AgentTimeView, Clock, ClockSource, ControllableClock, DriftingClock,
+    ExchangeClock, ExternalClockAdapter, MarginCalculator, MarginStatus, NetworkSim, NtpSyncEvent,
+    OrderValidator, StandardMarginCalculator, TimeScale, TimeUpdate, WorldClock,
 };
 
 // Re-export value objects

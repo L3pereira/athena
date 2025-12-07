@@ -165,7 +165,7 @@ where
         let mut book = self.order_book_repo.get_or_create(&symbol).await;
 
         // Validate order
-        OrderValidator::validate_order(&order, &instrument, &book)
+        OrderValidator::validate(&order, &instrument, &book)
             .map_err(|e| OrderError::ValidationFailed(e.message))?;
 
         // Get account and check/lock balances if enforcement is enabled

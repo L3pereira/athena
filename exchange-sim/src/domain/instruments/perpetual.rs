@@ -179,6 +179,22 @@ impl InstrumentSpec for PerpetualContract {
         self.lot_size
     }
 
+    fn base_asset(&self) -> &str {
+        &self.underlying
+    }
+
+    fn quote_asset(&self) -> &str {
+        if self.is_inverse {
+            &self.underlying
+        } else {
+            "USDT"
+        }
+    }
+
+    fn is_derivative(&self) -> bool {
+        true
+    }
+
     fn margin_requirement(&self) -> Decimal {
         self.initial_margin
     }

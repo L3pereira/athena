@@ -91,6 +91,14 @@ impl InstrumentSpec for SpotPair {
         self.lot_size
     }
 
+    fn base_asset(&self) -> &str {
+        &self.base
+    }
+
+    fn quote_asset(&self) -> &str {
+        &self.quote
+    }
+
     fn margin_requirement(&self) -> Decimal {
         Decimal::ONE // Spot = 100% margin (no leverage)
     }

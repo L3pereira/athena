@@ -8,8 +8,9 @@
 //! - Margin trading with collateral
 
 use exchange_sim::{
-    AccountRepository, Clock, ExchangeConfig, FeeSchedule, Order, OrderBookRepository, Price,
-    Quantity, Side, Symbol, TimeInForce, TradingPairConfig,
+    AccountRepository, Clock, ExchangeConfig, FeeSchedule, MarginCalculator, Order,
+    OrderBookRepository, Price, Quantity, Side, StandardMarginCalculator, Symbol, TimeInForce,
+    TradingPairConfig,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -260,7 +261,8 @@ mod spot_short_selling {
         let pos = trader.position(&symbol).unwrap();
 
         // Short profit = (entry - mark) * qty = (50000 - 45000) * 1 = $5000
-        assert_eq!(pos.unrealized_pnl(), dec!(5000));
+        let calc = StandardMarginCalculator;
+        assert_eq!(calc.unrealized_pnl(pos), dec!(5000));
     }
 }
 
@@ -388,7 +390,8 @@ mod perpetual_trading {
         let pos = trader.position(&symbol).unwrap();
 
         // Liquidation price for long = entry * (1 - margin_ratio + maintenance_rate)
-        let liq_price = pos.liquidation_price(trader.maintenance_margin_rate);
+        let calc = StandardMarginCalculator;
+        let liq_price = calc.liquidation_price(pos, trader.maintenance_margin_rate);
 
         // Should be around $45,250 (entry - margin + maintenance buffer)
         assert!(liq_price.inner() > dec!(45_000));

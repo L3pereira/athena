@@ -227,6 +227,18 @@ impl InstrumentSpec for OptionContract {
         self.lot_size
     }
 
+    fn base_asset(&self) -> &str {
+        &self.underlying
+    }
+
+    fn quote_asset(&self) -> &str {
+        "USDT" // Options typically settle in USDT
+    }
+
+    fn is_derivative(&self) -> bool {
+        true
+    }
+
     fn margin_requirement(&self) -> Decimal {
         // Buyers pay premium upfront (no margin)
         // Sellers need margin

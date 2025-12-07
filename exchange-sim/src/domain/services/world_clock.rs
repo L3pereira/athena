@@ -365,11 +365,21 @@ impl<S: ClockSource> Clock for DriftingClock<S> {
     }
 }
 
+/// DriftingClock implements ClockSource with intentional behavior:
+/// - `now()` returns the locally-perceived time (with drift applied)
+/// - `subscribe()` returns the source's time updates (for global synchronization)
+/// - `sequence()` returns the source's sequence (global ordering)
+///
+/// This is intentional: DriftingClock represents local clock drift, but coordinates
+/// via the global time source. Subscribers receive "true" time updates and must
+/// apply their own drift if needed.
 impl<S: ClockSource> ClockSource for DriftingClock<S> {
+    /// Returns source time updates (not drifted) for global synchronization
     fn subscribe(&self) -> broadcast::Receiver<TimeUpdate> {
         self.source.subscribe()
     }
 
+    /// Returns source sequence (global ordering, independent of local drift)
     fn sequence(&self) -> u64 {
         self.source.sequence()
     }
