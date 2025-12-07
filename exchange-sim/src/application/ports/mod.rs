@@ -5,7 +5,7 @@ mod order_book_repository;
 mod rate_limiter;
 
 pub use account_repository::AccountRepository;
-pub use event_publisher::EventPublisher;
+pub use event_publisher::{EventPublisher, SyncEventSink};
 pub use instrument_repository::InstrumentRepository;
 pub use order_book_repository::{
     MarketDataReader, OrderBookReader, OrderBookRepository, OrderBookWriter, OrderLookup,

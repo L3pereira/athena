@@ -9,8 +9,9 @@ pub use clock::SimulationClock;
 pub use event_publisher::BroadcastEventPublisher;
 pub use matching::PriceTimeMatcher;
 pub use order_book_shard::{
-    CancelOrderResponse, GetDepthResponse, OrderBookCommand, ShardConfig, ShardError, ShardHandle,
-    ShardManagerConfig, ShardStats, ShardedOrderBookManager, SubmitOrderResponse,
+    CancelOrderResponse, ConsistentHashStrategy, GetDepthResponse, OrderBookCommand, ShardConfig,
+    ShardError, ShardHandle, ShardManagerConfig, ShardStats, ShardedOrderBookManager,
+    ShardingStrategy, SubmitOrderResponse,
 };
 pub use rate_limiter::TokenBucketRateLimiter;
 pub use repositories::{

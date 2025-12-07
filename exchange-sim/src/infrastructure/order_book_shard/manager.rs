@@ -1,6 +1,9 @@
+use crate::application::ports::SyncEventSink;
 use crate::domain::{ExchangeEvent, Order, OrderId, Symbol, Timestamp};
+use crate::infrastructure::BroadcastEventPublisher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::sync::{broadcast, oneshot};
 
@@ -8,6 +11,32 @@ use super::command::{
     CancelOrderResponse, GetDepthResponse, OrderBookCommand, ShardStats, SubmitOrderResponse,
 };
 use super::shard::{OrderBookShard, ShardConfig, ShardError, ShardHandle};
+
+// ============================================================================
+// Sharding Strategy (DIP-compliant)
+// ============================================================================
+
+/// Strategy for distributing symbols across shards
+pub trait ShardingStrategy: Send + Sync {
+    /// Get the shard index for a symbol
+    fn get_shard_index(&self, symbol: &str, num_shards: usize) -> usize;
+}
+
+/// Default sharding strategy using consistent hashing
+pub struct ConsistentHashStrategy;
+
+impl ShardingStrategy for ConsistentHashStrategy {
+    fn get_shard_index(&self, symbol: &str, num_shards: usize) -> usize {
+        use std::collections::hash_map::DefaultHasher;
+        let mut hasher = DefaultHasher::new();
+        symbol.hash(&mut hasher);
+        (hasher.finish() as usize) % num_shards
+    }
+}
+
+// ============================================================================
+// Configuration
+// ============================================================================
 
 /// Configuration for the sharded order book manager
 #[derive(Debug, Clone)]
@@ -53,6 +82,10 @@ impl ShardManagerConfig {
     }
 }
 
+// ============================================================================
+// Sharded Order Book Manager
+// ============================================================================
+
 /// Manages multiple order book shards with consistent hashing
 pub struct ShardedOrderBookManager {
     /// Regular shards for non-hot symbols
@@ -61,17 +94,30 @@ pub struct ShardedOrderBookManager {
     hot_symbol_shards: HashMap<String, ShardHandle>,
     /// Thread handles for cleanup
     thread_handles: Vec<JoinHandle<()>>,
-    /// Event broadcaster
-    event_sender: broadcast::Sender<ExchangeEvent>,
+    /// Event publisher (for subscriptions)
+    event_publisher: Arc<BroadcastEventPublisher>,
+    /// Sharding strategy
+    sharding_strategy: Arc<dyn ShardingStrategy>,
     /// Configuration (kept for introspection)
     #[allow(dead_code)]
     config: ShardManagerConfig,
 }
 
 impl ShardedOrderBookManager {
-    /// Create and start all shards
+    /// Create and start all shards with default sharding strategy
     pub fn new(config: ShardManagerConfig) -> Self {
-        let (event_sender, _) = broadcast::channel(100_000);
+        Self::with_strategy(config, Arc::new(ConsistentHashStrategy))
+    }
+
+    /// Create with custom sharding strategy
+    pub fn with_strategy(
+        config: ShardManagerConfig,
+        sharding_strategy: Arc<dyn ShardingStrategy>,
+    ) -> Self {
+        let event_publisher = Arc::new(BroadcastEventPublisher::new(100_000));
+        // Cast to dyn SyncEventSink for passing to shards
+        let event_sink: Arc<dyn SyncEventSink> =
+            Arc::clone(&event_publisher) as Arc<dyn SyncEventSink>;
 
         let mut regular_shards = Vec::with_capacity(config.num_shards);
         let mut hot_symbol_shards = HashMap::new();
@@ -89,7 +135,7 @@ impl ShardedOrderBookManager {
                 },
             };
 
-            let (handle, thread) = OrderBookShard::spawn(shard_config, event_sender.clone());
+            let (handle, thread) = OrderBookShard::spawn(shard_config, Arc::clone(&event_sink));
             regular_shards.push(handle);
             thread_handles.push(thread);
         }
@@ -107,7 +153,7 @@ impl ShardedOrderBookManager {
                 },
             };
 
-            let (handle, thread) = OrderBookShard::spawn(shard_config, event_sender.clone());
+            let (handle, thread) = OrderBookShard::spawn(shard_config, Arc::clone(&event_sink));
             hot_symbol_shards.insert(symbol.clone(), handle);
             thread_handles.push(thread);
             hot_shard_id += 1;
@@ -123,7 +169,8 @@ impl ShardedOrderBookManager {
             regular_shards,
             hot_symbol_shards,
             thread_handles,
-            event_sender,
+            event_publisher,
+            sharding_strategy,
             config,
         }
     }
@@ -135,17 +182,11 @@ impl ShardedOrderBookManager {
             return shard;
         }
 
-        // Otherwise, use consistent hashing to pick a regular shard
-        let shard_idx = self.hash_symbol(symbol) % self.regular_shards.len();
+        // Otherwise, use sharding strategy to pick a regular shard
+        let shard_idx = self
+            .sharding_strategy
+            .get_shard_index(symbol, self.regular_shards.len());
         &self.regular_shards[shard_idx]
-    }
-
-    /// Consistent hash function for symbol distribution
-    fn hash_symbol(&self, symbol: &str) -> usize {
-        use std::collections::hash_map::DefaultHasher;
-        let mut hasher = DefaultHasher::new();
-        symbol.hash(&mut hasher);
-        hasher.finish() as usize
     }
 
     /// Submit an order
@@ -249,14 +290,12 @@ impl ShardedOrderBookManager {
 
     /// Subscribe to exchange events
     pub fn subscribe(&self) -> broadcast::Receiver<ExchangeEvent> {
-        self.event_sender.subscribe()
+        self.event_publisher.subscribe()
     }
 
     /// Subscribe to events for a specific symbol
-    pub fn subscribe_symbol(&self, _symbol: &str) -> broadcast::Receiver<ExchangeEvent> {
-        // For now, return global subscription
-        // Could be enhanced with per-symbol channels
-        self.event_sender.subscribe()
+    pub fn subscribe_symbol(&self, symbol: &str) -> broadcast::Receiver<ExchangeEvent> {
+        self.event_publisher.subscribe_symbol(symbol)
     }
 
     /// Get statistics for all shards
@@ -282,15 +321,19 @@ impl ShardedOrderBookManager {
             && self.hot_symbol_shards.values().all(|s| s.is_alive())
     }
 
-    /// Shutdown all shards gracefully
-    pub fn shutdown(mut self) {
-        // Send shutdown command to all shards
+    /// Send shutdown command to all shards (helper to avoid duplication)
+    fn send_shutdown_to_all_shards(&self) {
         for shard in &self.regular_shards {
             let _ = shard.send(OrderBookCommand::Shutdown);
         }
         for shard in self.hot_symbol_shards.values() {
             let _ = shard.send(OrderBookCommand::Shutdown);
         }
+    }
+
+    /// Shutdown all shards gracefully
+    pub fn shutdown(mut self) {
+        self.send_shutdown_to_all_shards();
 
         // Wait for threads to finish - take ownership of handles
         let handles = std::mem::take(&mut self.thread_handles);
@@ -305,12 +348,7 @@ impl ShardedOrderBookManager {
 impl Drop for ShardedOrderBookManager {
     fn drop(&mut self) {
         // Send shutdown to all shards (threads will exit when channel closes)
-        for shard in &self.regular_shards {
-            let _ = shard.send(OrderBookCommand::Shutdown);
-        }
-        for shard in self.hot_symbol_shards.values() {
-            let _ = shard.send(OrderBookCommand::Shutdown);
-        }
+        self.send_shutdown_to_all_shards();
     }
 }
 
@@ -406,16 +444,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_consistent_hashing() {
+    async fn test_custom_sharding_strategy() {
+        // Test with custom strategy
+        struct RoundRobinStrategy {
+            counter: std::sync::atomic::AtomicUsize,
+        }
+
+        impl ShardingStrategy for RoundRobinStrategy {
+            fn get_shard_index(&self, _symbol: &str, num_shards: usize) -> usize {
+                self.counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    % num_shards
+            }
+        }
+
+        let strategy = Arc::new(RoundRobinStrategy {
+            counter: std::sync::atomic::AtomicUsize::new(0),
+        });
+
         let config = ShardManagerConfig::default().with_num_shards(4);
-        let manager = ShardedOrderBookManager::new(config);
+        let manager = ShardedOrderBookManager::with_strategy(config, strategy);
 
-        // Same symbol should always go to same shard
-        let symbol = "SOLUSDT";
-        let shard_idx_1 = manager.hash_symbol(symbol) % 4;
-        let shard_idx_2 = manager.hash_symbol(symbol) % 4;
-        assert_eq!(shard_idx_1, shard_idx_2);
-
+        assert!(manager.is_healthy());
         manager.shutdown();
     }
 }

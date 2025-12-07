@@ -1,4 +1,4 @@
-use crate::application::ports::EventPublisher;
+use crate::application::ports::{EventPublisher, SyncEventSink};
 use crate::domain::ExchangeEvent;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -58,10 +58,13 @@ impl BroadcastEventPublisher {
     pub fn unsubscribe(&self) {
         self.subscriber_count.fetch_sub(1, Ordering::SeqCst);
     }
+}
 
-    /// Get the global sender (for internal use)
-    pub fn global_sender(&self) -> broadcast::Sender<ExchangeEvent> {
-        self.global_tx.clone()
+/// SyncEventSink implementation for use in sync contexts (e.g., shard threads)
+impl SyncEventSink for BroadcastEventPublisher {
+    fn send(&self, event: ExchangeEvent) {
+        // Non-blocking send, ignore errors (no subscribers)
+        let _ = self.global_tx.send(event);
     }
 }
 

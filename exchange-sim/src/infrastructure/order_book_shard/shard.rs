@@ -1,12 +1,12 @@
+use crate::application::ports::SyncEventSink;
 use crate::domain::{
     ExchangeEvent, Order, OrderBook, OrderId, Symbol, Timestamp, TradeExecutedEvent,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
-use tokio::sync::broadcast;
 
 use super::command::{
     CancelOrderResponse, GetDepthResponse, OrderBookCommand, ShardStats, SubmitOrderResponse,
@@ -33,6 +33,11 @@ impl Default for ShardConfig {
     }
 }
 
+// Shard state constants
+const SHARD_STATE_ALIVE: u8 = 0;
+const SHARD_STATE_SHUTTING_DOWN: u8 = 1;
+const SHARD_STATE_DEAD: u8 = 2;
+
 /// Handle to communicate with a shard
 #[derive(Clone)]
 pub struct ShardHandle {
@@ -40,6 +45,7 @@ pub struct ShardHandle {
     sender: Sender<OrderBookCommand>,
     orders_processed: Arc<AtomicU64>,
     trades_executed: Arc<AtomicU64>,
+    state: Arc<AtomicU8>,
 }
 
 impl ShardHandle {
@@ -59,10 +65,9 @@ impl ShardHandle {
         }
     }
 
-    /// Check if shard is alive
+    /// Check if shard is alive (uses proper state tracking, not heuristics)
     pub fn is_alive(&self) -> bool {
-        // Try to check if channel is still connected by checking capacity
-        !self.sender.is_full()
+        self.state.load(Ordering::Acquire) == SHARD_STATE_ALIVE
     }
 }
 
@@ -72,26 +77,29 @@ pub struct OrderBookShard {
     books: HashMap<String, OrderBook>,
     order_index: HashMap<OrderId, String>, // order_id -> symbol
     receiver: Receiver<OrderBookCommand>,
-    event_sender: broadcast::Sender<ExchangeEvent>,
+    event_sink: Arc<dyn SyncEventSink>,
     orders_processed: Arc<AtomicU64>,
     trades_executed: Arc<AtomicU64>,
+    state: Arc<AtomicU8>,
 }
 
 impl OrderBookShard {
     /// Create a new shard and return its handle
     pub fn spawn(
         config: ShardConfig,
-        event_sender: broadcast::Sender<ExchangeEvent>,
+        event_sink: Arc<dyn SyncEventSink>,
     ) -> (ShardHandle, JoinHandle<()>) {
         let (sender, receiver) = bounded(config.command_buffer_size);
         let orders_processed = Arc::new(AtomicU64::new(0));
         let trades_executed = Arc::new(AtomicU64::new(0));
+        let state = Arc::new(AtomicU8::new(SHARD_STATE_ALIVE));
 
         let handle = ShardHandle {
             shard_id: config.shard_id,
             sender,
             orders_processed: Arc::clone(&orders_processed),
             trades_executed: Arc::clone(&trades_executed),
+            state: Arc::clone(&state),
         };
 
         let shard = OrderBookShard {
@@ -99,9 +107,10 @@ impl OrderBookShard {
             books: HashMap::new(),
             order_index: HashMap::new(),
             receiver,
-            event_sender,
+            event_sink,
             orders_processed,
             trades_executed,
+            state,
         };
 
         let thread_handle = thread::Builder::new()
@@ -135,17 +144,24 @@ impl OrderBookShard {
             match self.receiver.recv() {
                 Ok(cmd) => {
                     if !self.process_command(cmd) {
+                        // Mark as shutting down
+                        self.state
+                            .store(SHARD_STATE_SHUTTING_DOWN, Ordering::Release);
                         break;
                     }
                 }
                 Err(_) => {
                     // Channel closed, shutdown
                     tracing::info!(shard_id = self.config.shard_id, "Shard channel closed");
+                    self.state
+                        .store(SHARD_STATE_SHUTTING_DOWN, Ordering::Release);
                     break;
                 }
             }
         }
 
+        // Mark as dead
+        self.state.store(SHARD_STATE_DEAD, Ordering::Release);
         tracing::info!(shard_id = self.config.shard_id, "Shard shutdown complete");
     }
 
@@ -223,10 +239,9 @@ impl OrderBookShard {
             self.order_index.insert(rem.id, symbol_str.clone());
         }
 
-        // Publish trade events
+        // Publish trade events via the event sink abstraction
         for trade in &trades {
-            let _ = self
-                .event_sender
+            self.event_sink
                 .send(ExchangeEvent::TradeExecuted(TradeExecutedEvent::from(
                     trade,
                 )));
