@@ -57,7 +57,10 @@ pub use application::{
 };
 
 // Re-export port traits for integration tests
-pub use application::ports::{AccountRepository, OrderBookRepository};
+pub use application::ports::{
+    AccountRepository, MarketDataReader, OrderBookReader, OrderBookRepository, OrderBookWriter,
+    OrderLookup,
+};
 
 pub use presentation::{AppState, StreamManager, WsState, create_router};
 

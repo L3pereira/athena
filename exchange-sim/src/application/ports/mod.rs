@@ -7,5 +7,10 @@ mod rate_limiter;
 pub use account_repository::AccountRepository;
 pub use event_publisher::EventPublisher;
 pub use instrument_repository::InstrumentRepository;
-pub use order_book_repository::OrderBookRepository;
-pub use rate_limiter::{RateLimitConfig, RateLimitResult, RateLimitStatus, RateLimiter};
+pub use order_book_repository::{
+    MarketDataReader, OrderBookReader, OrderBookRepository, OrderBookWriter, OrderLookup,
+};
+pub use rate_limiter::{
+    OrderRateLimiter, RateLimitAdmin, RateLimitConfig, RateLimitResult, RateLimitStatus,
+    RateLimiter, RequestRateLimiter, WebSocketRateLimiter,
+};

@@ -1,4 +1,6 @@
-use crate::application::ports::{EventPublisher, OrderBookRepository, RateLimiter};
+use crate::application::ports::{
+    EventPublisher, OrderBookReader, OrderBookWriter, RequestRateLimiter,
+};
 use crate::domain::{
     Clock, ExchangeEvent, Order, OrderCanceledEvent, OrderId, OrderValidator, Symbol,
 };
@@ -19,9 +21,9 @@ pub struct CancelOrderResult {
 pub struct CancelOrderUseCase<C, OB, E, R>
 where
     C: Clock,
-    OB: OrderBookRepository,
+    OB: OrderBookReader + OrderBookWriter,
     E: EventPublisher,
-    R: RateLimiter,
+    R: RequestRateLimiter,
 {
     clock: Arc<C>,
     order_book_repo: Arc<OB>,
@@ -32,9 +34,9 @@ where
 impl<C, OB, E, R> CancelOrderUseCase<C, OB, E, R>
 where
     C: Clock,
-    OB: OrderBookRepository,
+    OB: OrderBookReader + OrderBookWriter,
     E: EventPublisher,
-    R: RateLimiter,
+    R: RequestRateLimiter,
 {
     pub fn new(
         clock: Arc<C>,

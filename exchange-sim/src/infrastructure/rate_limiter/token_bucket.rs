@@ -1,4 +1,7 @@
-use crate::application::ports::{RateLimitConfig, RateLimitResult, RateLimitStatus, RateLimiter};
+use crate::application::ports::{
+    OrderRateLimiter, RateLimitAdmin, RateLimitConfig, RateLimitResult, RateLimitStatus,
+    RateLimiter, RequestRateLimiter, WebSocketRateLimiter,
+};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use parking_lot::Mutex;
@@ -141,8 +144,10 @@ impl Clone for TokenBucketRateLimiter {
     }
 }
 
+// Implement focused traits separately for better testability
+
 #[async_trait]
-impl RateLimiter for TokenBucketRateLimiter {
+impl RequestRateLimiter for TokenBucketRateLimiter {
     async fn check_request(&self, client_id: &str, weight: u32) -> RateLimitResult {
         let client = self.get_or_create_client(client_id);
         let mut bucket = client.request_weight.lock();
@@ -155,7 +160,10 @@ impl RateLimiter for TokenBucketRateLimiter {
             RateLimitResult::denied(bucket.current(), bucket.limit(), retry_after, weight)
         }
     }
+}
 
+#[async_trait]
+impl OrderRateLimiter for TokenBucketRateLimiter {
     async fn check_order(&self, client_id: &str) -> RateLimitResult {
         let client = self.get_or_create_client(client_id);
 
@@ -183,7 +191,10 @@ impl RateLimiter for TokenBucketRateLimiter {
 
         RateLimitResult::allowed(second_bucket.current(), second_bucket.limit(), 1)
     }
+}
 
+#[async_trait]
+impl WebSocketRateLimiter for TokenBucketRateLimiter {
     async fn check_ws_message(&self, client_id: &str) -> RateLimitResult {
         let client = self.get_or_create_client(client_id);
         let mut bucket = client.ws_messages.lock();
@@ -196,7 +207,10 @@ impl RateLimiter for TokenBucketRateLimiter {
             RateLimitResult::denied(bucket.current(), bucket.limit(), retry_after, 1)
         }
     }
+}
 
+#[async_trait]
+impl RateLimitAdmin for TokenBucketRateLimiter {
     async fn get_status(&self, client_id: &str) -> RateLimitStatus {
         let client = self.get_or_create_client(client_id);
 
@@ -227,6 +241,10 @@ impl RateLimiter for TokenBucketRateLimiter {
         &self.config
     }
 }
+
+// Composite trait implementation (backwards compatible)
+#[async_trait]
+impl RateLimiter for TokenBucketRateLimiter {}
 
 #[cfg(test)]
 mod tests {

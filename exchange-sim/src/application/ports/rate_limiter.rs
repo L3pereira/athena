@@ -69,23 +69,34 @@ impl RateLimitResult {
     }
 }
 
-/// Rate limiter port
-///
-/// Simulates Binance rate limits for realistic testing:
-/// - Request weight limits (different endpoints have different weights)
-/// - Order rate limits
-/// - IP-based limits
+// ============================================================================
+// Focused Rate Limiter Traits (ISP-compliant)
+// ============================================================================
+
+/// Rate limiter for REST API requests (weight-based)
 #[async_trait]
-pub trait RateLimiter: Send + Sync {
+pub trait RequestRateLimiter: Send + Sync {
     /// Check if a request is allowed (consumes quota if allowed)
     async fn check_request(&self, client_id: &str, weight: u32) -> RateLimitResult;
+}
 
+/// Rate limiter for order submissions
+#[async_trait]
+pub trait OrderRateLimiter: Send + Sync {
     /// Check if an order submission is allowed
     async fn check_order(&self, client_id: &str) -> RateLimitResult;
+}
 
+/// Rate limiter for WebSocket messages
+#[async_trait]
+pub trait WebSocketRateLimiter: Send + Sync {
     /// Check WebSocket message rate
     async fn check_ws_message(&self, client_id: &str) -> RateLimitResult;
+}
 
+/// Rate limit administration (status, reset, config)
+#[async_trait]
+pub trait RateLimitAdmin: Send + Sync {
     /// Get current rate limit status for a client
     async fn get_status(&self, client_id: &str) -> RateLimitStatus;
 
@@ -94,6 +105,23 @@ pub trait RateLimiter: Send + Sync {
 
     /// Get the configuration
     fn config(&self) -> &RateLimitConfig;
+}
+
+// ============================================================================
+// Composite Trait (backwards compatible)
+// ============================================================================
+
+/// Full rate limiter combining all capabilities
+///
+/// Use focused traits when you only need a subset:
+/// - `RequestRateLimiter` for REST API weight checks
+/// - `OrderRateLimiter` for order submission checks
+/// - `WebSocketRateLimiter` for WS message checks
+/// - `RateLimitAdmin` for status/reset/config
+#[async_trait]
+pub trait RateLimiter:
+    RequestRateLimiter + OrderRateLimiter + WebSocketRateLimiter + RateLimitAdmin
+{
 }
 
 /// Current rate limit status for a client

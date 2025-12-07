@@ -9,7 +9,7 @@ use futures_util::{SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::application::ports::RateLimiter;
+use crate::application::ports::WebSocketRateLimiter;
 use crate::domain::Clock;
 use crate::infrastructure::TokenBucketRateLimiter;
 

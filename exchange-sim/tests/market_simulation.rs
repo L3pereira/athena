@@ -9,7 +9,8 @@
 
 use exchange_sim::{
     AccountRepository, Clock, ControllableClock, ExchangeConfig, FeeSchedule, Order,
-    OrderBookRepository, Price, Quantity, Side, Symbol, TimeInForce, TradingPairConfig,
+    OrderBookReader, OrderBookWriter, Price, Quantity, Side, Symbol, TimeInForce,
+    TradingPairConfig,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;

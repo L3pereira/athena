@@ -1,4 +1,4 @@
-use crate::application::ports::OrderBookRepository;
+use crate::application::ports::{MarketDataReader, OrderBookReader, OrderBookWriter, OrderLookup};
 use crate::domain::{Order, OrderBook, OrderId, PriceLevel, Symbol};
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -35,7 +35,7 @@ impl Clone for InMemoryOrderBookRepository {
 }
 
 #[async_trait]
-impl OrderBookRepository for InMemoryOrderBookRepository {
+impl OrderBookReader for InMemoryOrderBookRepository {
     async fn get_or_create(&self, symbol: &Symbol) -> OrderBook {
         let key = symbol.to_string();
 
@@ -55,27 +55,17 @@ impl OrderBookRepository for InMemoryOrderBookRepository {
             .get(&symbol.to_string())
             .map(|b| b.value().clone())
     }
+}
 
+#[async_trait]
+impl OrderBookWriter for InMemoryOrderBookRepository {
     async fn save(&self, book: OrderBook) {
         self.books.insert(book.symbol().to_string(), book);
     }
+}
 
-    async fn get_order(&self, order_id: OrderId) -> Option<Order> {
-        for entry in self.books.iter() {
-            if let Some(order) = entry.value().get_order(order_id) {
-                return Some(order.clone());
-            }
-        }
-        None
-    }
-
-    async fn get_symbols(&self) -> Vec<Symbol> {
-        self.books
-            .iter()
-            .map(|entry| entry.value().symbol().clone())
-            .collect()
-    }
-
+#[async_trait]
+impl MarketDataReader for InMemoryOrderBookRepository {
     async fn get_depth(
         &self,
         symbol: &Symbol,
@@ -91,6 +81,25 @@ impl OrderBookRepository for InMemoryOrderBookRepository {
 
     async fn get_sequence(&self, symbol: &Symbol) -> Option<u64> {
         self.books.get(&symbol.to_string()).map(|b| b.sequence())
+    }
+
+    async fn get_symbols(&self) -> Vec<Symbol> {
+        self.books
+            .iter()
+            .map(|entry| entry.value().symbol().clone())
+            .collect()
+    }
+}
+
+#[async_trait]
+impl OrderLookup for InMemoryOrderBookRepository {
+    async fn get_order(&self, order_id: OrderId) -> Option<Order> {
+        for entry in self.books.iter() {
+            if let Some(order) = entry.value().get_order(order_id) {
+                return Some(order.clone());
+            }
+        }
+        None
     }
 }
 

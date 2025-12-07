@@ -1,4 +1,4 @@
-use crate::application::ports::{OrderBookRepository, RateLimiter};
+use crate::application::ports::{MarketDataReader, RequestRateLimiter};
 use crate::domain::{DepthSnapshotEvent, PriceLevel, Symbol};
 use std::sync::Arc;
 
@@ -21,23 +21,23 @@ impl DepthResult {
     }
 }
 
-pub struct GetDepthUseCase<OB, R>
+pub struct GetDepthUseCase<MD, R>
 where
-    OB: OrderBookRepository,
-    R: RateLimiter,
+    MD: MarketDataReader,
+    R: RequestRateLimiter,
 {
-    order_book_repo: Arc<OB>,
+    market_data: Arc<MD>,
     rate_limiter: Arc<R>,
 }
 
-impl<OB, R> GetDepthUseCase<OB, R>
+impl<MD, R> GetDepthUseCase<MD, R>
 where
-    OB: OrderBookRepository,
-    R: RateLimiter,
+    MD: MarketDataReader,
+    R: RequestRateLimiter,
 {
-    pub fn new(order_book_repo: Arc<OB>, rate_limiter: Arc<R>) -> Self {
+    pub fn new(market_data: Arc<MD>, rate_limiter: Arc<R>) -> Self {
         Self {
-            order_book_repo,
+            market_data,
             rate_limiter,
         }
     }
@@ -74,7 +74,7 @@ where
 
         // Get depth
         let (bids, asks, sequence) = self
-            .order_book_repo
+            .market_data
             .get_depth(&symbol, limit)
             .await
             .ok_or_else(|| DepthError::SymbolNotFound(query.symbol.clone()))?;

@@ -1,5 +1,6 @@
 use crate::application::ports::{
-    AccountRepository, EventPublisher, InstrumentRepository, OrderBookRepository, RateLimiter,
+    AccountRepository, EventPublisher, InstrumentRepository, OrderBookReader, OrderBookWriter,
+    OrderRateLimiter,
 };
 use crate::domain::{
     AccountError, Clock, ExchangeEvent, Order, OrderAcceptedEvent, OrderFilledEvent, OrderStatus,
@@ -38,10 +39,10 @@ pub struct SubmitOrderUseCase<C, A, OB, I, E, R>
 where
     C: Clock,
     A: AccountRepository,
-    OB: OrderBookRepository,
+    OB: OrderBookReader + OrderBookWriter,
     I: InstrumentRepository,
     E: EventPublisher,
-    R: RateLimiter,
+    R: OrderRateLimiter,
 {
     clock: Arc<C>,
     account_repo: Arc<A>,
@@ -57,10 +58,10 @@ impl<C, A, OB, I, E, R> SubmitOrderUseCase<C, A, OB, I, E, R>
 where
     C: Clock,
     A: AccountRepository,
-    OB: OrderBookRepository,
+    OB: OrderBookReader + OrderBookWriter,
     I: InstrumentRepository,
     E: EventPublisher,
-    R: RateLimiter,
+    R: OrderRateLimiter,
 {
     pub fn new(
         clock: Arc<C>,
