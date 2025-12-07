@@ -1,0 +1,82 @@
+[package]
+name = "exchange-sim"
+version = "0.1.0"
+edition = "2024"
+authors = ["l3p"]
+description = "Isolated exchange simulator with Binance-compatible WebSocket and REST API"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.44", features = ["full"] }
+
+# Web framework (REST API)
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = { version = "0.5", features = ["util", "timeout", "limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Identifiers & time
+uuid = { version = "1.16", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging & tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Concurrency
+dashmap = "6.1"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+num_cpus = "1.16"
+
+# System
+libc = "0.2"
+
+# Data structures
+priority-queue = "2.3"
+indexmap = { version = "2.7", features = ["serde"] }
+
+# Decimal precision
+rust_decimal = { version = "1.37", features = ["serde", "maths"] }
+rust_decimal_macros = "1.37"
+
+# Rate limiting
+governor = "0.10"
+
+# Async utilities
+async-trait = "0.1"
+pin-project-lite = "0.2"
+
+# Random number generation (for jitter simulation)
+rand = "0.8"
+rand_distr = "0.4"
+
+[dev-dependencies]
+tokio-test = "0.4"
+reqwest = { version = "0.12", features = ["json"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bin]]
+name = "exchange-sim"
+path = "src/main.rs"
+
+# Integration tests - uncomment when test files are created
+# [[test]]
+# name = "integration_tests"
+# path = "tests/integration_tests.rs"
+
+# Benchmarks - uncomment when bench files are created
+# [[bench]]
+# name = "orderbook_bench"
+# harness = false
