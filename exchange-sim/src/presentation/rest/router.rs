@@ -57,21 +57,21 @@ pub fn create_router<C: Clock + 'static>(state: Arc<AppState<C>>) -> Router {
         // Admin/Bootstrap endpoints (for testing)
         .route("/admin/accounts", post(admin_handlers::create_account::<C>))
         .route(
-            "/admin/accounts/:owner_id",
+            "/admin/accounts/{owner_id}",
             get(admin_handlers::get_account::<C>),
         )
         .route(
-            "/admin/accounts/:owner_id/deposit",
+            "/admin/accounts/{owner_id}/deposit",
             post(admin_handlers::deposit::<C>),
         )
         .route(
-            "/admin/accounts/:owner_id/fee-tier",
+            "/admin/accounts/{owner_id}/fee-tier",
             put(admin_handlers::set_fee_tier::<C>),
         )
         .route("/admin/markets", post(admin_handlers::create_market::<C>))
         .route("/admin/markets", get(admin_handlers::list_markets::<C>))
         .route(
-            "/admin/markets/:symbol",
+            "/admin/markets/{symbol}",
             get(admin_handlers::get_market::<C>),
         )
         // Middleware

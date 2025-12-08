@@ -71,10 +71,13 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 name = "exchange-sim"
 path = "src/main.rs"
 
-# Integration tests - uncomment when test files are created
-# [[test]]
-# name = "integration_tests"
-# path = "tests/integration_tests.rs"
+[[test]]
+name = "api_integration"
+path = "tests/api_integration.rs"
+
+[[test]]
+name = "websocket_integration"
+path = "tests/websocket_integration.rs"
 
 # Benchmarks - uncomment when bench files are created
 # [[bench]]

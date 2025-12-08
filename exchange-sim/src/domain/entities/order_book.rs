@@ -397,22 +397,30 @@ impl OrderBook {
         result.trades
     }
 
-    /// Get top N bid price levels
+    /// Get top N bid price levels (sorted descending by price - best bid first)
     pub fn get_bids(&self, depth: usize) -> Vec<PriceLevel> {
-        self.bid_quantities
+        let mut levels: Vec<_> = self
+            .bid_quantities
             .iter()
-            .take(depth)
             .map(|(price, qty)| PriceLevel::new(*price, *qty))
-            .collect()
+            .collect();
+        // Sort descending by price (highest first)
+        levels.sort_by(|a, b| b.price.cmp(&a.price));
+        levels.truncate(depth);
+        levels
     }
 
-    /// Get top N ask price levels
+    /// Get top N ask price levels (sorted ascending by price - best ask first)
     pub fn get_asks(&self, depth: usize) -> Vec<PriceLevel> {
-        self.ask_quantities
+        let mut levels: Vec<_> = self
+            .ask_quantities
             .iter()
-            .take(depth)
             .map(|(price, qty)| PriceLevel::new(*price, *qty))
-            .collect()
+            .collect();
+        // Sort ascending by price (lowest first)
+        levels.sort_by(|a, b| a.price.cmp(&b.price));
+        levels.truncate(depth);
+        levels
     }
 
     /// Get full depth snapshot
