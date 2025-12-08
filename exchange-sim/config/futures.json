@@ -1,0 +1,124 @@
+{
+  "name": "Futures Exchange",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "rate_limits": {
+    "requests_per_minute": 2400,
+    "orders_per_second": 50
+  },
+  "markets": [
+    {
+      "symbol": "BTCUSDT-PERP",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "PERPETUAL_FUTURES",
+      "tick_size": "0.1",
+      "lot_size": "0.001",
+      "maker_fee_bps": 2,
+      "taker_fee_bps": 4,
+      "futures": {
+        "max_leverage": 125,
+        "funding_interval_hours": 8
+      }
+    },
+    {
+      "symbol": "ETHUSDT-PERP",
+      "base_asset": "ETH",
+      "quote_asset": "USDT",
+      "instrument_type": "PERPETUAL_FUTURES",
+      "tick_size": "0.01",
+      "lot_size": "0.001",
+      "maker_fee_bps": 2,
+      "taker_fee_bps": 4,
+      "futures": {
+        "max_leverage": 100,
+        "funding_interval_hours": 8
+      }
+    },
+    {
+      "symbol": "BNBUSDT-PERP",
+      "base_asset": "BNB",
+      "quote_asset": "USDT",
+      "instrument_type": "PERPETUAL_FUTURES",
+      "futures": {
+        "max_leverage": 75
+      }
+    },
+    {
+      "symbol": "SOLUSDT-PERP",
+      "base_asset": "SOL",
+      "quote_asset": "USDT",
+      "instrument_type": "PERPETUAL_FUTURES",
+      "futures": {
+        "max_leverage": 50
+      }
+    },
+    {
+      "symbol": "BTCUSDT-DEC24",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "FUTURES",
+      "futures": {
+        "expiration_ms": 1735689600000,
+        "max_leverage": 50
+      }
+    },
+    {
+      "symbol": "BTCUSDT-MAR25",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "FUTURES",
+      "futures": {
+        "expiration_ms": 1743465600000,
+        "max_leverage": 50
+      }
+    }
+  ],
+  "accounts": [
+    {
+      "owner_id": "futures-mm",
+      "deposits": [
+        { "asset": "USDT", "amount": "50000000" }
+      ],
+      "fee_tier": 0
+    },
+    {
+      "owner_id": "test-trader",
+      "deposits": [
+        { "asset": "USDT", "amount": "100000" }
+      ]
+    }
+  ],
+  "seed_orders": [
+    {
+      "symbol": "BTCUSDT-PERP",
+      "owner_id": "futures-mm",
+      "side": "BUY",
+      "price": "99000",
+      "quantity": "100"
+    },
+    {
+      "symbol": "BTCUSDT-PERP",
+      "owner_id": "futures-mm",
+      "side": "SELL",
+      "price": "101000",
+      "quantity": "100"
+    },
+    {
+      "symbol": "ETHUSDT-PERP",
+      "owner_id": "futures-mm",
+      "side": "BUY",
+      "price": "3900",
+      "quantity": "1000"
+    },
+    {
+      "symbol": "ETHUSDT-PERP",
+      "owner_id": "futures-mm",
+      "side": "SELL",
+      "price": "4100",
+      "quantity": "1000"
+    }
+  ]
+}

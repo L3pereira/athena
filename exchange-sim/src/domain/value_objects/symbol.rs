@@ -10,12 +10,21 @@ impl Symbol {
         if s.is_empty() {
             return Err("Symbol cannot be empty");
         }
-        if s.len() > 20 {
-            return Err("Symbol too long (max 20 chars)");
+        if s.len() > 30 {
+            return Err("Symbol too long (max 30 chars)");
         }
-        // Binance symbols are uppercase alphanumeric
-        if !s.chars().all(|c| c.is_ascii_alphanumeric()) {
-            return Err("Symbol must be alphanumeric");
+        // Allow alphanumeric and hyphens (for derivatives like BTC-27DEC24-100000-C)
+        if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err("Symbol must be alphanumeric (hyphens allowed)");
+        }
+        // Must start with alphanumeric
+        if !s
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphanumeric())
+            .unwrap_or(false)
+        {
+            return Err("Symbol must start with alphanumeric character");
         }
         Ok(Symbol(s.to_uppercase()))
     }

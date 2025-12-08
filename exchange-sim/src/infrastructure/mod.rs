@@ -1,4 +1,5 @@
 pub mod clock;
+pub mod config;
 pub mod event_publisher;
 pub mod matching;
 pub mod order_book_shard;
@@ -6,6 +7,10 @@ pub mod rate_limiter;
 pub mod repositories;
 
 pub use clock::SimulationClock;
+pub use config::{
+    AccountConfig, ConfigError, DepositConfig, FuturesConfigDto, MarketConfig, OptionConfigDto,
+    RateLimitConfigDto, SeedOrderConfig, ServerConfig, SimulatorConfig,
+};
 pub use event_publisher::BroadcastEventPublisher;
 pub use matching::PriceTimeMatcher;
 pub use order_book_shard::{

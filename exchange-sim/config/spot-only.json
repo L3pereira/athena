@@ -1,0 +1,44 @@
+{
+  "name": "Spot Trading Exchange",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "markets": [
+    {
+      "symbol": "BTCUSDT",
+      "base_asset": "BTC",
+      "quote_asset": "USDT"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "base_asset": "ETH",
+      "quote_asset": "USDT"
+    },
+    {
+      "symbol": "BNBUSDT",
+      "base_asset": "BNB",
+      "quote_asset": "USDT"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "base_asset": "SOL",
+      "quote_asset": "USDT"
+    },
+    {
+      "symbol": "XRPUSDT",
+      "base_asset": "XRP",
+      "quote_asset": "USDT"
+    }
+  ],
+  "accounts": [
+    {
+      "owner_id": "test-trader",
+      "deposits": [
+        { "asset": "USDT", "amount": "100000" },
+        { "asset": "BTC", "amount": "5" },
+        { "asset": "ETH", "amount": "50" }
+      ]
+    }
+  ]
+}

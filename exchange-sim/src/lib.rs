@@ -194,4 +194,102 @@ impl Exchange<SimulationClock> {
         let clock = Arc::new(SimulationClock::fixed());
         Self::with_clock(config, clock)
     }
+
+    /// Create exchange from SimulatorConfig (JSON config)
+    pub async fn from_config(
+        sim_config: infrastructure::SimulatorConfig,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        // Convert to ExchangeConfig
+        let exchange_config = ExchangeConfig {
+            host: sim_config.server.host,
+            rest_port: sim_config.server.port,
+            ws_port: sim_config.server.port,
+            rate_limits: RateLimitConfig {
+                requests_per_minute: sim_config.rate_limits.requests_per_minute,
+                orders_per_second: sim_config.rate_limits.orders_per_second,
+                orders_per_day: sim_config.rate_limits.orders_per_day,
+                request_weight_per_minute: sim_config.rate_limits.request_weight_per_minute,
+                ws_connections_per_ip: sim_config.rate_limits.ws_connections_per_ip,
+                ws_messages_per_second: sim_config.rate_limits.ws_messages_per_second,
+            },
+            event_capacity: sim_config.server.event_capacity,
+        };
+
+        // Create exchange with empty instrument repo
+        let clock = Arc::new(SimulationClock::new());
+        let rate_limiter = Arc::new(TokenBucketRateLimiter::new(
+            exchange_config.rate_limits.clone(),
+        ));
+        let event_publisher =
+            Arc::new(BroadcastEventPublisher::new(exchange_config.event_capacity));
+        let account_repo = Arc::new(InMemoryAccountRepository::new());
+        let order_book_repo = Arc::new(InMemoryOrderBookRepository::new());
+        let instrument_repo = Arc::new(InMemoryInstrumentRepository::new()); // Empty, not with_defaults
+
+        let exchange = Exchange {
+            config: exchange_config,
+            clock,
+            account_repo,
+            order_book_repo,
+            instrument_repo,
+            event_publisher,
+            rate_limiter,
+        };
+
+        // Add configured markets
+        for market in &sim_config.markets {
+            let trading_pair = market.to_trading_pair_config()?;
+            tracing::info!(
+                "Adding market: {} ({:?})",
+                trading_pair.symbol,
+                trading_pair.instrument_type
+            );
+            exchange.instrument_repo.add(trading_pair);
+        }
+
+        // Create configured accounts
+        for account_config in &sim_config.accounts {
+            let mut account = exchange
+                .account_repo
+                .get_or_create(&account_config.owner_id)
+                .await;
+            for deposit in &account_config.deposits {
+                account.deposit(&deposit.asset, deposit.amount);
+            }
+            if let Some(tier) = account_config.fee_tier {
+                account.fee_schedule = FeeSchedule::from_tier(tier);
+            }
+            exchange.account_repo.save(account).await;
+            tracing::info!("Created account: {}", account_config.owner_id);
+        }
+
+        // Create order books and seed orders
+        for seed_order in &sim_config.seed_orders {
+            let symbol = Symbol::new(&seed_order.symbol)?;
+
+            // Ensure order book exists
+            let mut book = exchange.order_book_repo.get_or_create(&symbol).await;
+
+            // Create the seed order
+            let order = Order::new_limit(
+                symbol.clone(),
+                seed_order.side,
+                Quantity::from(seed_order.quantity),
+                Price::from(seed_order.price),
+                seed_order.time_in_force.unwrap_or(TimeInForce::Gtc),
+            );
+
+            book.add_order(order);
+            exchange.order_book_repo.save(book).await;
+            tracing::info!(
+                "Added seed order: {} {} {} @ {}",
+                seed_order.side,
+                seed_order.quantity,
+                seed_order.symbol,
+                seed_order.price
+            );
+        }
+
+        Ok(exchange)
+    }
 }

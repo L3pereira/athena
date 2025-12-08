@@ -7,9 +7,9 @@ pub mod value_objects;
 
 // Re-export entity types
 pub use entities::{
-    Account, AccountError, AccountId, AccountStatus, AssetBalance, FeeSchedule, InstrumentStatus,
-    Loan, MarginMode, Order, OrderBook, OrderBookSnapshot, OrderStatus, Position, PositionSide,
-    PriceLevel, Trade, TradingPairConfig,
+    Account, AccountError, AccountId, AccountStatus, AssetBalance, FeeSchedule, FuturesConfig,
+    InstrumentStatus, InstrumentType, Loan, MarginMode, OptionConfig, Order, OrderBook,
+    OrderBookSnapshot, OrderStatus, Position, PositionSide, PriceLevel, Trade, TradingPairConfig,
 };
 
 // Re-export events

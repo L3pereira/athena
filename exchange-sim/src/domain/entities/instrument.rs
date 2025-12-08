@@ -1,16 +1,94 @@
+use crate::domain::instruments::{ExerciseStyle, OptionType};
 use crate::domain::value_objects::{Price, Quantity, Symbol};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+
+/// Type of financial instrument being traded
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum InstrumentType {
+    /// Spot trading (immediate delivery)
+    #[default]
+    Spot,
+    /// Perpetual futures (no expiry)
+    PerpetualFutures,
+    /// Dated futures (with expiry)
+    Futures,
+    /// Options contract
+    Option,
+    /// Margin trading
+    Margin,
+}
+
+impl std::fmt::Display for InstrumentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InstrumentType::Spot => write!(f, "SPOT"),
+            InstrumentType::PerpetualFutures => write!(f, "PERPETUAL_FUTURES"),
+            InstrumentType::Futures => write!(f, "FUTURES"),
+            InstrumentType::Option => write!(f, "OPTION"),
+            InstrumentType::Margin => write!(f, "MARGIN"),
+        }
+    }
+}
+
+/// Options-specific configuration for TradingPairConfig
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptionConfig {
+    /// Strike price
+    pub strike: Price,
+    /// Option type (CALL or PUT)
+    pub option_type: OptionType,
+    /// Expiration timestamp (Unix millis)
+    pub expiration_ms: i64,
+    /// Exercise style
+    #[serde(default)]
+    pub exercise_style: ExerciseStyle,
+}
+
+/// Futures-specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FuturesConfig {
+    /// Expiration timestamp (Unix millis) - None for perpetuals
+    pub expiration_ms: Option<i64>,
+    /// Contract multiplier (e.g., 1 BTC = 100 contracts)
+    pub contract_multiplier: Decimal,
+    /// Settlement asset (e.g., "USDT" for USDT-margined)
+    pub settlement_asset: String,
+    /// Maximum leverage allowed
+    pub max_leverage: u32,
+    /// Maintenance margin rate
+    pub maintenance_margin_rate: Decimal,
+    /// Initial margin rate
+    pub initial_margin_rate: Decimal,
+    /// Funding rate interval in hours (for perpetuals)
+    pub funding_interval_hours: Option<u32>,
+}
+
+impl Default for FuturesConfig {
+    fn default() -> Self {
+        Self {
+            expiration_ms: None,
+            contract_multiplier: Decimal::ONE,
+            settlement_asset: "USDT".to_string(),
+            max_leverage: 125,
+            maintenance_margin_rate: Decimal::new(4, 3), // 0.4%
+            initial_margin_rate: Decimal::new(1, 2),     // 1%
+            funding_interval_hours: Some(8),
+        }
+    }
+}
 
 /// Trading pair configuration (exchange-level settings)
 ///
 /// This represents the exchange's configuration for a trading pair,
 /// including tick sizes, lot sizes, trading status, etc.
-///
-/// For financial instrument type definitions (Spot, Perpetual, Option),
-/// see the `instruments` module.
+/// Supports multiple instrument types (Spot, Futures, Options).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradingPairConfig {
+    /// Type of instrument
+    #[serde(default)]
+    pub instrument_type: InstrumentType,
     pub symbol: Symbol,
     pub base_asset: String,
     pub quote_asset: String,
@@ -32,6 +110,12 @@ pub struct TradingPairConfig {
     pub maker_fee_rate: Decimal,
     /// Taker fee rate (e.g., 0.001 = 0.1%)
     pub taker_fee_rate: Decimal,
+    /// Futures-specific configuration (for PERPETUAL_FUTURES and FUTURES types)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub futures_config: Option<FuturesConfig>,
+    /// Options-specific configuration (for OPTION type)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub option_config: Option<OptionConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -46,12 +130,24 @@ pub enum InstrumentStatus {
 }
 
 impl TradingPairConfig {
+    /// Create a new spot trading pair configuration
     pub fn new(
         symbol: Symbol,
         base_asset: impl Into<String>,
         quote_asset: impl Into<String>,
     ) -> Self {
+        Self::with_type(InstrumentType::Spot, symbol, base_asset, quote_asset)
+    }
+
+    /// Create a trading pair with specific instrument type
+    pub fn with_type(
+        instrument_type: InstrumentType,
+        symbol: Symbol,
+        base_asset: impl Into<String>,
+        quote_asset: impl Into<String>,
+    ) -> Self {
         TradingPairConfig {
+            instrument_type,
             symbol,
             base_asset: base_asset.into(),
             quote_asset: quote_asset.into(),
@@ -72,7 +168,64 @@ impl TradingPairConfig {
             ],
             maker_fee_rate: Decimal::new(1, 4), // 0.0001 = 0.01% (1 bps)
             taker_fee_rate: Decimal::new(2, 4), // 0.0002 = 0.02% (2 bps)
+            futures_config: None,
+            option_config: None,
         }
+    }
+
+    /// Create a perpetual futures configuration
+    pub fn perpetual(
+        symbol: Symbol,
+        base_asset: impl Into<String>,
+        quote_asset: impl Into<String>,
+    ) -> Self {
+        Self::with_type(
+            InstrumentType::PerpetualFutures,
+            symbol,
+            base_asset,
+            quote_asset,
+        )
+        .with_futures_config(FuturesConfig::default())
+    }
+
+    /// Create a dated futures configuration
+    pub fn futures(
+        symbol: Symbol,
+        base_asset: impl Into<String>,
+        quote_asset: impl Into<String>,
+        expiration_ms: i64,
+    ) -> Self {
+        let futures_config = FuturesConfig {
+            expiration_ms: Some(expiration_ms),
+            funding_interval_hours: None, // No funding for dated futures
+            ..Default::default()
+        };
+
+        Self::with_type(InstrumentType::Futures, symbol, base_asset, quote_asset)
+            .with_futures_config(futures_config)
+    }
+
+    /// Create an option configuration
+    pub fn option(
+        symbol: Symbol,
+        base_asset: impl Into<String>,
+        quote_asset: impl Into<String>,
+        option_config: OptionConfig,
+    ) -> Self {
+        Self::with_type(InstrumentType::Option, symbol, base_asset, quote_asset)
+            .with_option_config(option_config)
+    }
+
+    /// Set futures-specific configuration
+    pub fn with_futures_config(mut self, config: FuturesConfig) -> Self {
+        self.futures_config = Some(config);
+        self
+    }
+
+    /// Set option-specific configuration
+    pub fn with_option_config(mut self, config: OptionConfig) -> Self {
+        self.option_config = Some(config);
+        self
     }
 
     pub fn with_tick_size(mut self, tick_size: Price) -> Self {

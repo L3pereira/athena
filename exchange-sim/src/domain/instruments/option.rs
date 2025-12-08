@@ -7,6 +7,7 @@ use crate::domain::{Price, Quantity, Timestamp};
 
 /// Option type: Call (right to buy) or Put (right to sell)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OptionType {
     Call,
     Put,
@@ -23,6 +24,7 @@ impl std::fmt::Display for OptionType {
 
 /// Option exercise style
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExerciseStyle {
     /// Can only exercise at expiry (most crypto options)
     #[default]

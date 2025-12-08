@@ -1,0 +1,211 @@
+{
+  "name": "Athena Multi-Instrument Exchange",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "event_capacity": 10000
+  },
+  "rate_limits": {
+    "requests_per_minute": 1200,
+    "orders_per_second": 10,
+    "orders_per_day": 200000
+  },
+  "markets": [
+    {
+      "symbol": "BTCUSDT",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "SPOT",
+      "tick_size": "0.01",
+      "lot_size": "0.00001",
+      "maker_fee_bps": 10,
+      "taker_fee_bps": 20
+    },
+    {
+      "symbol": "ETHUSDT",
+      "base_asset": "ETH",
+      "quote_asset": "USDT",
+      "instrument_type": "SPOT",
+      "tick_size": "0.01",
+      "lot_size": "0.0001"
+    },
+    {
+      "symbol": "BTCUSDT-PERP",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "PERPETUAL_FUTURES",
+      "tick_size": "0.1",
+      "lot_size": "0.001",
+      "maker_fee_bps": 2,
+      "taker_fee_bps": 4,
+      "futures": {
+        "contract_multiplier": "1",
+        "settlement_asset": "USDT",
+        "max_leverage": 125,
+        "maintenance_margin_rate": "0.004",
+        "initial_margin_rate": "0.01",
+        "funding_interval_hours": 8
+      }
+    },
+    {
+      "symbol": "ETHUSDT-PERP",
+      "base_asset": "ETH",
+      "quote_asset": "USDT",
+      "instrument_type": "PERPETUAL_FUTURES",
+      "futures": {
+        "max_leverage": 100,
+        "funding_interval_hours": 8
+      }
+    },
+    {
+      "symbol": "BTCUSDT-DEC24",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "FUTURES",
+      "futures": {
+        "expiration_ms": 1735689600000,
+        "contract_multiplier": "1",
+        "settlement_asset": "USDT",
+        "max_leverage": 50
+      }
+    },
+    {
+      "symbol": "BTC-27DEC24-100000-C",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "OPTION",
+      "tick_size": "0.0001",
+      "lot_size": "0.01",
+      "option": {
+        "strike": "100000",
+        "option_type": "CALL",
+        "expiration_ms": 1735257600000,
+        "exercise_style": "EUROPEAN"
+      }
+    },
+    {
+      "symbol": "BTC-27DEC24-100000-P",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "OPTION",
+      "option": {
+        "strike": "100000",
+        "option_type": "PUT",
+        "expiration_ms": 1735257600000,
+        "exercise_style": "EUROPEAN"
+      }
+    },
+    {
+      "symbol": "BTC-27DEC24-80000-C",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "instrument_type": "OPTION",
+      "option": {
+        "strike": "80000",
+        "option_type": "CALL",
+        "expiration_ms": 1735257600000,
+        "exercise_style": "EUROPEAN"
+      }
+    }
+  ],
+  "accounts": [
+    {
+      "owner_id": "market-maker-1",
+      "deposits": [
+        { "asset": "USDT", "amount": "10000000" },
+        { "asset": "BTC", "amount": "100" },
+        { "asset": "ETH", "amount": "1000" }
+      ],
+      "fee_tier": 0
+    },
+    {
+      "owner_id": "market-maker-2",
+      "deposits": [
+        { "asset": "USDT", "amount": "5000000" },
+        { "asset": "BTC", "amount": "50" }
+      ],
+      "fee_tier": 1
+    },
+    {
+      "owner_id": "trader-1",
+      "deposits": [
+        { "asset": "USDT", "amount": "100000" },
+        { "asset": "BTC", "amount": "2" },
+        { "asset": "ETH", "amount": "20" }
+      ],
+      "fee_tier": 5
+    }
+  ],
+  "seed_orders": [
+    {
+      "symbol": "BTCUSDT",
+      "owner_id": "market-maker-1",
+      "side": "BUY",
+      "price": "99000",
+      "quantity": "10"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "owner_id": "market-maker-1",
+      "side": "BUY",
+      "price": "98500",
+      "quantity": "20"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "owner_id": "market-maker-1",
+      "side": "BUY",
+      "price": "98000",
+      "quantity": "30"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "owner_id": "market-maker-2",
+      "side": "SELL",
+      "price": "101000",
+      "quantity": "10"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "owner_id": "market-maker-2",
+      "side": "SELL",
+      "price": "101500",
+      "quantity": "20"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "owner_id": "market-maker-2",
+      "side": "SELL",
+      "price": "102000",
+      "quantity": "30"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "owner_id": "market-maker-1",
+      "side": "BUY",
+      "price": "3900",
+      "quantity": "100"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "owner_id": "market-maker-2",
+      "side": "SELL",
+      "price": "4100",
+      "quantity": "100"
+    },
+    {
+      "symbol": "BTCUSDT-PERP",
+      "owner_id": "market-maker-1",
+      "side": "BUY",
+      "price": "99500",
+      "quantity": "5"
+    },
+    {
+      "symbol": "BTCUSDT-PERP",
+      "owner_id": "market-maker-2",
+      "side": "SELL",
+      "price": "100500",
+      "quantity": "5"
+    }
+  ]
+}

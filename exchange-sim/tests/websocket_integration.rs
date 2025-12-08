@@ -5,7 +5,7 @@
 
 use axum::{Router, routing::get};
 use exchange_sim::{
-    application::ports::{OrderBookReader, OrderBookWriter},
+    OrderBookReader, OrderBookWriter,
     domain::{Price, Quantity, Side, Symbol, TimeInForce, TradingPairConfig},
     infrastructure::{
         BroadcastEventPublisher, InMemoryAccountRepository, InMemoryInstrumentRepository,
