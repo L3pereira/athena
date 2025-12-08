@@ -3,9 +3,9 @@ use crate::application::ports::{
     OrderRateLimiter,
 };
 use crate::domain::{
-    AccountError, Clock, ExchangeEvent, Order, OrderAcceptedEvent, OrderFilledEvent, OrderStatus,
-    OrderType, OrderValidator, PositionSide, Price, Quantity, Side, Symbol, TimeInForce,
-    TradeExecutedEvent,
+    AccountError, Clock, DepthUpdateEvent, ExchangeEvent, Order, OrderAcceptedEvent,
+    OrderFilledEvent, OrderStatus, OrderType, OrderValidator, PositionSide, Price, PriceLevel,
+    Quantity, Side, Symbol, TimeInForce, TradeExecutedEvent,
 };
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -208,6 +208,9 @@ where
             }
         }
 
+        // Capture sequence before matching for depth update
+        let first_update_id = book.sequence() + 1;
+
         // Match order
         let mut fills = Vec::new();
         let (trades, remaining) = book.match_order(order.clone(), now);
@@ -362,10 +365,31 @@ where
             filled
         };
 
+        // Capture depth state before saving for delta calculation
+        let final_update_id = book.sequence();
+        let current_bids: Vec<PriceLevel> = book.get_bids(20);
+        let current_asks: Vec<PriceLevel> = book.get_asks(20);
+
         // Save book and account
         self.order_book_repo.save(book).await;
         if self.enforce_balances {
             self.account_repo.save(account).await;
+        }
+
+        // Publish depth update event (Binance-compatible)
+        // Only publish if there were actual changes (sequence advanced)
+        if final_update_id >= first_update_id {
+            let depth_update = DepthUpdateEvent::new(
+                &symbol,
+                first_update_id,
+                final_update_id,
+                current_bids,
+                current_asks,
+                self.clock.now_millis(),
+            );
+            self.event_publisher
+                .publish_to_symbol(symbol.as_str(), ExchangeEvent::DepthUpdate(depth_update))
+                .await;
         }
 
         // Publish fill events

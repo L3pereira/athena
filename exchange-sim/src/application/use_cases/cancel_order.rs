@@ -2,7 +2,8 @@ use crate::application::ports::{
     EventPublisher, OrderBookReader, OrderBookWriter, RequestRateLimiter,
 };
 use crate::domain::{
-    Clock, ExchangeEvent, Order, OrderCanceledEvent, OrderId, OrderValidator, Symbol,
+    Clock, DepthUpdateEvent, ExchangeEvent, Order, OrderCanceledEvent, OrderId, OrderValidator,
+    PriceLevel, Symbol,
 };
 use std::sync::Arc;
 
@@ -96,6 +97,9 @@ where
         OrderValidator::validate_cancel(&order)
             .map_err(|e| CancelError::ValidationFailed(e.message))?;
 
+        // Capture sequence before removal for depth update
+        let first_update_id = book.sequence() + 1;
+
         // Remove from book
         let mut cancelled_order = book
             .remove_order(order_id)
@@ -105,10 +109,28 @@ where
         let now = self.clock.now();
         cancelled_order.cancel(now);
 
+        // Capture depth state for depth update
+        let final_update_id = book.sequence();
+        let current_bids: Vec<PriceLevel> = book.get_bids(20);
+        let current_asks: Vec<PriceLevel> = book.get_asks(20);
+
         // Save book
         self.order_book_repo.save(book).await;
 
-        // Publish event
+        // Publish depth update event
+        let depth_update = DepthUpdateEvent::new(
+            &symbol,
+            first_update_id,
+            final_update_id,
+            current_bids,
+            current_asks,
+            self.clock.now_millis(),
+        );
+        self.event_publisher
+            .publish_to_symbol(symbol.as_str(), ExchangeEvent::DepthUpdate(depth_update))
+            .await;
+
+        // Publish cancel event
         self.event_publisher
             .publish_to_symbol(
                 symbol.as_str(),

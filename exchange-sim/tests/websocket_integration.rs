@@ -521,3 +521,130 @@ async fn test_depth_snapshot_matches_rest() {
     assert!(bid_prices[0] > bid_prices[1]);
     assert!(bid_prices[1] > bid_prices[2]);
 }
+
+#[tokio::test]
+async fn test_depth_update_sequence_sync() {
+    let (addr, _order_book_repo) = start_full_test_server().await;
+
+    // Create an account via REST
+    let client = reqwest::Client::new();
+
+    let create_account_resp = client
+        .post(format!("http://{}/admin/accounts", addr))
+        .json(&json!({
+            "owner_id": "seq_trader",
+            "deposits": [
+                { "asset": "USDT", "amount": "100000" },
+                { "asset": "BTC", "amount": "10" }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(create_account_resp.status(), 201);
+
+    // Get initial depth snapshot with lastUpdateId
+    let initial_depth: Value = client
+        .get(format!(
+            "http://{}/api/v3/depth?symbol=BTCUSDT&limit=10",
+            addr
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let initial_update_id = initial_depth["lastUpdateId"].as_u64().unwrap();
+
+    // Connect to WebSocket and subscribe to depth
+    let ws_url = format!("ws://{}/ws", addr);
+    let (mut ws_stream, _) = connect_async(&ws_url).await.unwrap();
+
+    let subscribe_msg = json!({
+        "method": "SUBSCRIBE",
+        "params": ["btcusdt@depth"],
+        "id": 1
+    });
+    ws_stream
+        .send(Message::Text(subscribe_msg.to_string().into()))
+        .await
+        .unwrap();
+
+    // Wait for subscribe confirmation
+    let _ = tokio::time::timeout(Duration::from_secs(1), ws_stream.next()).await;
+
+    // Submit an order that modifies the book
+    let order_resp = client
+        .post(format!("http://{}/api/v3/order", addr))
+        .header("X-MBX-APIKEY", "seq_trader")
+        .json(&json!({
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "quantity": "1.0",
+            "price": "45000",
+            "timeInForce": "GTC"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(order_resp.status(), 200);
+
+    // Wait for depth update via WebSocket
+    let depth_update = tokio::time::timeout(Duration::from_secs(2), ws_stream.next())
+        .await
+        .ok()
+        .and_then(|opt| opt)
+        .and_then(|res| res.ok());
+
+    if let Some(Message::Text(text)) = depth_update {
+        let json: Value = serde_json::from_str(&text).unwrap();
+
+        // Check if it's a depth update (has "U" and "u" fields per Binance format)
+        if let (Some(first_id), Some(final_id)) = (json.get("U"), json.get("u")) {
+            let first_update_id = first_id.as_u64().unwrap();
+            let final_update_id = final_id.as_u64().unwrap();
+
+            // Binance sync rule: first_update_id <= lastUpdateId+1 <= final_update_id
+            // This ensures we can detect gaps
+            assert!(
+                first_update_id > initial_update_id,
+                "Depth update should come after initial snapshot"
+            );
+            assert!(
+                first_update_id <= final_update_id,
+                "first_update_id should be <= final_update_id"
+            );
+
+            println!(
+                "Sequence sync verified: initial={}, update=[{}, {}]",
+                initial_update_id, first_update_id, final_update_id
+            );
+        }
+    }
+
+    // Get new snapshot and verify lastUpdateId advanced
+    let new_depth: Value = client
+        .get(format!(
+            "http://{}/api/v3/depth?symbol=BTCUSDT&limit=10",
+            addr
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let new_update_id = new_depth["lastUpdateId"].as_u64().unwrap();
+    assert!(
+        new_update_id > initial_update_id,
+        "lastUpdateId should advance after order: {} > {}",
+        new_update_id,
+        initial_update_id
+    );
+}
