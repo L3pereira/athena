@@ -91,6 +91,20 @@ impl FeeSchedule {
         Self::vip(9, dec!(-0.50), dec!(0.50))
     }
 
+    /// Create fee schedule from tier number
+    /// This provides a single source of truth for tier-to-schedule mapping.
+    pub fn from_tier(tier: u8) -> Self {
+        match tier {
+            1 => Self::tier_1(),
+            2 => Self::tier_2(),
+            3 => Self::tier_3(),
+            4 => Self::tier_4(),
+            5 => Self::tier_5(),
+            9 => Self::market_maker(),
+            _ => Self::default(),
+        }
+    }
+
     /// Apply discount to base fee rates
     pub fn apply(&self, maker_rate: Decimal, taker_rate: Decimal) -> (Decimal, Decimal) {
         (

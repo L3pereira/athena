@@ -55,20 +55,7 @@ pub struct FillResponse {
 
 impl OrderResponse {
     pub fn from_order(order: &Order, fills: Vec<FillResponse>) -> Self {
-        let executed_qty = order.filled_quantity.inner();
-        let avg_price = if !fills.is_empty() {
-            fills
-                .iter()
-                .map(|f| {
-                    f.price.parse::<Decimal>().unwrap_or(Decimal::ZERO)
-                        * f.qty.parse::<Decimal>().unwrap_or(Decimal::ZERO)
-                })
-                .sum::<Decimal>()
-                / executed_qty
-        } else {
-            Decimal::ZERO
-        };
-        let cummulative_quote_qty = executed_qty * avg_price;
+        let cummulative_quote_qty = Self::calculate_cumulative_quote_qty(&fills);
 
         OrderResponse {
             symbol: order.symbol.to_string(),
@@ -92,6 +79,18 @@ impl OrderResponse {
             side: order.side.to_string(),
             fills,
         }
+    }
+
+    /// Calculate the cumulative quote quantity from fills (price * qty sum)
+    fn calculate_cumulative_quote_qty(fills: &[FillResponse]) -> Decimal {
+        fills
+            .iter()
+            .map(|f| {
+                let price = f.price.parse::<Decimal>().unwrap_or(Decimal::ZERO);
+                let qty = f.qty.parse::<Decimal>().unwrap_or(Decimal::ZERO);
+                price * qty
+            })
+            .sum()
     }
 }
 

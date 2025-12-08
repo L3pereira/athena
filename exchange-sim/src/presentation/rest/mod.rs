@@ -5,5 +5,5 @@ mod handlers;
 mod router;
 
 pub use dto::*;
-pub use error::ApiError;
+pub use error::{ApiError, CancelErrorMapper, DepthErrorMapper, ErrorMapper, OrderErrorMapper};
 pub use router::{AppState, create_router};

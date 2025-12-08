@@ -99,16 +99,7 @@ pub async fn create_account<C: Clock>(
 
     // Set fee tier
     if let Some(tier) = req.fee_tier {
-        account.fee_schedule = match tier {
-            0 => FeeSchedule::default(),
-            1 => FeeSchedule::tier_1(),
-            2 => FeeSchedule::tier_2(),
-            3 => FeeSchedule::tier_3(),
-            4 => FeeSchedule::tier_4(),
-            5 => FeeSchedule::tier_5(),
-            9 => FeeSchedule::market_maker(),
-            _ => FeeSchedule::default(),
-        };
+        account.fee_schedule = FeeSchedule::from_tier(tier);
     }
 
     // Build balance response
@@ -201,16 +192,7 @@ pub async fn set_fee_tier<C: Clock>(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let mut account = state.account_repo.get_or_create(&owner_id).await;
 
-    account.fee_schedule = match tier {
-        0 => FeeSchedule::default(),
-        1 => FeeSchedule::tier_1(),
-        2 => FeeSchedule::tier_2(),
-        3 => FeeSchedule::tier_3(),
-        4 => FeeSchedule::tier_4(),
-        5 => FeeSchedule::tier_5(),
-        9 => FeeSchedule::market_maker(),
-        _ => FeeSchedule::default(),
-    };
+    account.fee_schedule = FeeSchedule::from_tier(tier);
 
     state.account_repo.save(account).await;
 

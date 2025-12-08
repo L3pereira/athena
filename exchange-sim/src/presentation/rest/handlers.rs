@@ -7,12 +7,13 @@ use rust_decimal::Decimal;
 use std::sync::Arc;
 
 use crate::application::{
-    CancelError, CancelOrderCommand, CancelOrderUseCase, DepthError, ExchangeInfoError,
-    GetDepthQuery, GetDepthUseCase, GetExchangeInfoUseCase, OrderError, SubmitOrderCommand,
-    SubmitOrderUseCase,
+    CancelOrderCommand, CancelOrderUseCase, ExchangeInfoError, GetDepthQuery, GetDepthUseCase,
+    GetExchangeInfoUseCase, SubmitOrderCommand, SubmitOrderUseCase,
 };
 use crate::domain::{Clock, OrderType, Price, Quantity, Side, TimeInForce};
-use crate::presentation::rest::{ApiError, dto::*};
+use crate::presentation::rest::{
+    ApiError, CancelErrorMapper, DepthErrorMapper, ErrorMapper, OrderErrorMapper, dto::*,
+};
 
 use super::AppState;
 
@@ -71,11 +72,7 @@ pub async fn depth<C: Clock>(
             },
         )
         .await
-        .map_err(|e| match e {
-            DepthError::RateLimited { retry_after_ms } => ApiError::rate_limited(retry_after_ms),
-            DepthError::InvalidSymbol(s) => ApiError::invalid_symbol(&s),
-            DepthError::SymbolNotFound(s) => ApiError::invalid_symbol(&s),
-        })?;
+        .map_err(DepthErrorMapper::map_error)?;
 
     Ok(Json(DepthResponse {
         last_update_id: result.last_update_id,
@@ -165,16 +162,7 @@ pub async fn create_order<C: Clock>(
     let result = use_case
         .execute(&client_id, command)
         .await
-        .map_err(|e| match e {
-            OrderError::RateLimited { retry_after_ms } => ApiError::rate_limited(retry_after_ms),
-            OrderError::InvalidSymbol(s) => ApiError::invalid_symbol(&s),
-            OrderError::SymbolNotFound(s) => ApiError::invalid_symbol(&s),
-            OrderError::MissingPrice => ApiError::missing_parameter("price"),
-            OrderError::MissingStopPrice => ApiError::missing_parameter("stopPrice"),
-            OrderError::ValidationFailed(msg) => ApiError::bad_request(-1013, msg),
-            OrderError::AccountError(e) => ApiError::bad_request(-2010, e.to_string()),
-            OrderError::InternalError(msg) => ApiError::internal(msg),
-        })?;
+        .map_err(OrderErrorMapper::map_error)?;
 
     let fills: Vec<FillResponse> = result
         .fills
@@ -218,16 +206,7 @@ pub async fn cancel_order<C: Clock>(
     let result = use_case
         .execute(&client_id, command)
         .await
-        .map_err(|e| match e {
-            CancelError::RateLimited { retry_after_ms } => ApiError::rate_limited(retry_after_ms),
-            CancelError::InvalidSymbol(s) => ApiError::invalid_symbol(&s),
-            CancelError::SymbolNotFound(s) => ApiError::invalid_symbol(&s),
-            CancelError::OrderNotFound => ApiError::unknown_order(),
-            CancelError::MissingOrderId => {
-                ApiError::missing_parameter("orderId or origClientOrderId")
-            }
-            CancelError::ValidationFailed(msg) => ApiError::bad_request(-2011, msg),
-        })?;
+        .map_err(CancelErrorMapper::map_error)?;
 
     let order = &result.order;
     Ok(Json(CancelOrderResponse {

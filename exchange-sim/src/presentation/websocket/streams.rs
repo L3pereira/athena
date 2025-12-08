@@ -9,6 +9,63 @@ use super::message::{DepthUpdateMessage, TradeMessage, WsMessage};
 /// Type alias for depth snapshot state: (bids, asks, update_id)
 type DepthSnapshot = (Vec<PriceLevel>, Vec<PriceLevel>, u64);
 
+// ============================================================================
+// Stream Type (OCP-compliant)
+// ============================================================================
+
+/// Supported WebSocket stream types
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StreamType {
+    Depth,
+    Depth100ms,
+    Depth1000ms,
+    Trade,
+    AggTrade,
+}
+
+impl StreamType {
+    /// Parse stream type from string suffix
+    pub fn from_suffix(suffix: &str) -> Option<Self> {
+        match suffix {
+            "depth" => Some(Self::Depth),
+            "depth@100ms" => Some(Self::Depth100ms),
+            "depth@1000ms" => Some(Self::Depth1000ms),
+            "trade" => Some(Self::Trade),
+            "aggTrade" => Some(Self::AggTrade),
+            _ => None,
+        }
+    }
+
+    /// Check if this stream type is depth-related
+    pub fn is_depth(&self) -> bool {
+        matches!(self, Self::Depth | Self::Depth100ms | Self::Depth1000ms)
+    }
+}
+
+/// Parsed stream name containing symbol and type
+pub struct ParsedStream {
+    pub symbol: String,
+    pub stream_type: StreamType,
+}
+
+impl ParsedStream {
+    /// Parse a stream name like "btcusdt@depth" or "btcusdt@trade"
+    pub fn parse(stream: &str) -> Option<Self> {
+        let parts: Vec<&str> = stream.split('@').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+
+        let symbol = parts[0].to_uppercase();
+        let stream_type = StreamType::from_suffix(parts[1])?;
+
+        Some(Self {
+            symbol,
+            stream_type,
+        })
+    }
+}
+
 /// Manages WebSocket stream subscriptions
 pub struct StreamManager {
     publisher: Arc<BroadcastEventPublisher>,
@@ -29,53 +86,36 @@ impl StreamManager {
 
     /// Subscribe to a stream and return a receiver
     pub fn subscribe(&self, stream: &str) -> Option<broadcast::Receiver<ExchangeEvent>> {
-        // Parse stream name (e.g., "btcusdt@depth", "btcusdt@trade")
-        let parts: Vec<&str> = stream.split('@').collect();
-        if parts.len() != 2 {
-            return None;
+        let parsed = ParsedStream::parse(stream)?;
+
+        // Track depth streams for delta calculation
+        if parsed.stream_type.is_depth() {
+            self.depth_streams.insert(parsed.symbol.clone(), true);
         }
 
-        let symbol = parts[0].to_uppercase();
-        let stream_type = parts[1];
-
-        match stream_type {
-            "depth" | "depth@100ms" | "depth@1000ms" => {
-                self.depth_streams.insert(symbol.clone(), true);
-                Some(self.publisher.subscribe_symbol(&symbol))
-            }
-            "trade" => Some(self.publisher.subscribe_symbol(&symbol)),
-            "aggTrade" => Some(self.publisher.subscribe_symbol(&symbol)),
-            _ => None,
-        }
+        Some(self.publisher.subscribe_symbol(&parsed.symbol))
     }
 
     /// Unsubscribe from a stream
     pub fn unsubscribe(&self, stream: &str) {
-        let parts: Vec<&str> = stream.split('@').collect();
-        if parts.len() == 2 {
-            let symbol = parts[0].to_uppercase();
-            self.depth_streams.remove(&symbol);
+        if let Some(parsed) = ParsedStream::parse(stream) {
+            if parsed.stream_type.is_depth() {
+                self.depth_streams.remove(&parsed.symbol);
+            }
             self.publisher.unsubscribe();
         }
     }
 
     /// Convert an exchange event to a WebSocket message
     pub fn event_to_message(&self, stream: &str, event: &ExchangeEvent) -> Option<WsMessage> {
-        let parts: Vec<&str> = stream.split('@').collect();
-        if parts.len() != 2 {
-            return None;
-        }
+        let parsed = ParsedStream::parse(stream)?;
 
-        let stream_type = parts[1];
-
-        match (stream_type, event) {
-            ("depth" | "depth@100ms" | "depth@1000ms", ExchangeEvent::DepthUpdate(update)) => {
-                Some(WsMessage {
-                    stream: stream.to_string(),
-                    data: serde_json::to_value(update).ok()?,
-                })
-            }
-            ("trade", ExchangeEvent::TradeExecuted(trade)) => {
+        match (&parsed.stream_type, event) {
+            (st, ExchangeEvent::DepthUpdate(update)) if st.is_depth() => Some(WsMessage {
+                stream: stream.to_string(),
+                data: serde_json::to_value(update).ok()?,
+            }),
+            (StreamType::Trade, ExchangeEvent::TradeExecuted(trade)) => {
                 let msg = TradeMessage {
                     event_type: "trade".to_string(),
                     event_time: trade.timestamp.timestamp_millis(),

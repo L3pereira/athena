@@ -86,3 +86,63 @@ impl std::fmt::Display for ApiError {
 }
 
 impl std::error::Error for ApiError {}
+
+// ============================================================================
+// Error Mapper Traits (DIP)
+// ============================================================================
+
+use crate::application::{CancelError, DepthError, OrderError};
+
+/// Trait for mapping application errors to API errors (DIP)
+pub trait ErrorMapper<E> {
+    fn map_error(error: E) -> ApiError;
+}
+
+/// Order error mapper
+pub struct OrderErrorMapper;
+
+impl ErrorMapper<OrderError> for OrderErrorMapper {
+    fn map_error(error: OrderError) -> ApiError {
+        match error {
+            OrderError::RateLimited { retry_after_ms } => ApiError::rate_limited(retry_after_ms),
+            OrderError::InvalidSymbol(s) => ApiError::invalid_symbol(&s),
+            OrderError::SymbolNotFound(s) => ApiError::invalid_symbol(&s),
+            OrderError::MissingPrice => ApiError::missing_parameter("price"),
+            OrderError::MissingStopPrice => ApiError::missing_parameter("stopPrice"),
+            OrderError::ValidationFailed(msg) => ApiError::bad_request(-1013, msg),
+            OrderError::AccountError(e) => ApiError::bad_request(-2010, e.to_string()),
+            OrderError::InternalError(msg) => ApiError::internal(msg),
+        }
+    }
+}
+
+/// Cancel error mapper
+pub struct CancelErrorMapper;
+
+impl ErrorMapper<CancelError> for CancelErrorMapper {
+    fn map_error(error: CancelError) -> ApiError {
+        match error {
+            CancelError::RateLimited { retry_after_ms } => ApiError::rate_limited(retry_after_ms),
+            CancelError::InvalidSymbol(s) => ApiError::invalid_symbol(&s),
+            CancelError::SymbolNotFound(s) => ApiError::invalid_symbol(&s),
+            CancelError::OrderNotFound => ApiError::unknown_order(),
+            CancelError::MissingOrderId => {
+                ApiError::missing_parameter("orderId or origClientOrderId")
+            }
+            CancelError::ValidationFailed(msg) => ApiError::bad_request(-2011, msg),
+        }
+    }
+}
+
+/// Depth error mapper
+pub struct DepthErrorMapper;
+
+impl ErrorMapper<DepthError> for DepthErrorMapper {
+    fn map_error(error: DepthError) -> ApiError {
+        match error {
+            DepthError::RateLimited { retry_after_ms } => ApiError::rate_limited(retry_after_ms),
+            DepthError::InvalidSymbol(s) => ApiError::invalid_symbol(&s),
+            DepthError::SymbolNotFound(s) => ApiError::invalid_symbol(&s),
+        }
+    }
+}
