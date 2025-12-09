@@ -1,4 +1,5 @@
 mod account_repository;
+mod blockchain_port;
 mod custodian_repository;
 mod event_publisher;
 mod instrument_repository;
@@ -8,6 +9,10 @@ mod rate_limiter;
 mod withdrawal_repository;
 
 pub use account_repository::AccountRepository;
+pub use blockchain_port::{
+    BlockchainPort, DepositAddressGenerator, DepositAddressRegistry, DepositScanner,
+    ProcessedDepositTracker,
+};
 pub use custodian_repository::{CustodianReader, CustodianRepository, CustodianWriter};
 pub use event_publisher::{EventPublisher, SyncEventSink};
 pub use instrument_repository::InstrumentRepository;

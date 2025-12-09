@@ -1,8 +1,13 @@
+mod blockchain_simulator;
 mod clock;
 mod margin_calculator;
 mod order_validator;
 mod world_clock;
 
+pub use blockchain_simulator::{
+    BlockchainError, BlockchainSimulator, BlockchainState, BlockchainTx, DepositAddress,
+    NetworkConfig, TxId, TxStatus,
+};
 pub use clock::{
     Clock, ClockSource, ControllableClock, ExternalClockAdapter, NtpSyncEvent, TimeScale,
     TimeUpdate,

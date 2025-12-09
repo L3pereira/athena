@@ -1,7 +1,196 @@
+use crate::domain::entities::Network;
 use crate::domain::instruments::{ExerciseStyle, OptionType};
 use crate::domain::value_objects::{Price, Quantity, Symbol};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+
+// ============================================================================
+// SETTLEMENT TYPES
+// ============================================================================
+
+/// Settlement cycle for clearinghouse-based settlement
+///
+/// Defines when settlement occurs after trade execution.
+/// Traditional finance uses T+N notation where N is the number of business days.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SettlementCycle {
+    /// Same-day settlement (rare, used for some government securities)
+    T0,
+    /// Next-day settlement (common for US treasuries)
+    T1,
+    /// Two-day settlement (was standard for US equities before 2024)
+    #[default]
+    T2,
+    /// Three-day settlement (legacy, used in some markets)
+    T3,
+}
+
+impl SettlementCycle {
+    /// Get the number of business days until settlement
+    pub fn days(&self) -> u32 {
+        match self {
+            SettlementCycle::T0 => 0,
+            SettlementCycle::T1 => 1,
+            SettlementCycle::T2 => 2,
+            SettlementCycle::T3 => 3,
+        }
+    }
+}
+
+impl std::fmt::Display for SettlementCycle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SettlementCycle::T0 => write!(f, "T+0"),
+            SettlementCycle::T1 => write!(f, "T+1"),
+            SettlementCycle::T2 => write!(f, "T+2"),
+            SettlementCycle::T3 => write!(f, "T+3"),
+        }
+    }
+}
+
+/// Clearing method determines how positions are cleared and settled
+///
+/// This is distinct from `SettlementType` (Physical vs Cash) which describes
+/// what is delivered. `ClearingMethod` describes the infrastructure used.
+///
+/// # Blockchain Clearing (Crypto)
+/// - Positions are held in exchange hot custody or transferred to cold wallets
+/// - Settlement requires blockchain confirmations
+/// - Finality depends on network consensus (e.g., 6 confirmations for Bitcoin)
+/// - Cross-exchange transfers use blockchain network
+///
+/// # Clearinghouse Clearing (Equities/Traditional Finance)
+/// - Trades are cleared through a Central Counterparty (CCP)
+/// - Settlement follows T+N cycle (business days after trade)
+/// - Uses Delivery vs Payment (DVP) through Central Depository
+/// - Supports multilateral netting to reduce settlement volume
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "method", rename_all = "snake_case")]
+pub enum ClearingMethod {
+    /// Blockchain-based clearing for cryptocurrencies
+    Blockchain {
+        /// The blockchain network used for settlement
+        network: Network,
+        /// Number of confirmations required for finality
+        #[serde(default = "default_confirmations")]
+        confirmations_required: u32,
+    },
+    /// Clearinghouse-based clearing for traditional securities
+    Clearinghouse {
+        /// Settlement cycle (T+0, T+1, T+2, etc.)
+        #[serde(default)]
+        cycle: SettlementCycle,
+        /// Clearinghouse identifier (e.g., "DTCC", "LCH", "CME")
+        #[serde(default = "default_clearinghouse")]
+        clearinghouse_id: String,
+    },
+    /// Internal clearing (off-exchange, immediate)
+    Internal,
+}
+
+fn default_confirmations() -> u32 {
+    6 // Standard Bitcoin confirmation count
+}
+
+fn default_clearinghouse() -> String {
+    "DEFAULT".to_string()
+}
+
+impl Default for ClearingMethod {
+    fn default() -> Self {
+        // Default to blockchain clearing with Ethereum for backwards compatibility
+        ClearingMethod::Blockchain {
+            network: Network::default(),
+            confirmations_required: 12, // Ethereum block confirmations
+        }
+    }
+}
+
+impl ClearingMethod {
+    /// Create a blockchain clearing method for crypto assets
+    pub fn blockchain(network: Network) -> Self {
+        let confirmations = match &network {
+            Network::Bitcoin => 6,
+            Network::Ethereum => 12,
+            Network::Bsc | Network::Polygon | Network::Arbitrum => 20,
+            Network::Solana => 32,
+            Network::Internal => 0,
+            Network::Custom(_) => 12, // Default to Ethereum-like confirmations for custom networks
+        };
+        ClearingMethod::Blockchain {
+            network,
+            confirmations_required: confirmations,
+        }
+    }
+
+    /// Create a clearinghouse clearing method for equities
+    pub fn clearinghouse(cycle: SettlementCycle, clearinghouse_id: impl Into<String>) -> Self {
+        ClearingMethod::Clearinghouse {
+            cycle,
+            clearinghouse_id: clearinghouse_id.into(),
+        }
+    }
+
+    /// Create internal clearing (immediate, no external verification)
+    pub fn internal() -> Self {
+        ClearingMethod::Internal
+    }
+
+    /// Check if this is blockchain-based clearing
+    pub fn is_blockchain(&self) -> bool {
+        matches!(self, ClearingMethod::Blockchain { .. })
+    }
+
+    /// Check if this is clearinghouse-based clearing
+    pub fn is_clearinghouse(&self) -> bool {
+        matches!(self, ClearingMethod::Clearinghouse { .. })
+    }
+
+    /// Get the network if this is blockchain clearing
+    pub fn network(&self) -> Option<&Network> {
+        match self {
+            ClearingMethod::Blockchain { network, .. } => Some(network),
+            _ => None,
+        }
+    }
+
+    /// Get the settlement cycle if this is clearinghouse clearing
+    pub fn settlement_cycle(&self) -> Option<SettlementCycle> {
+        match self {
+            ClearingMethod::Clearinghouse { cycle, .. } => Some(*cycle),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ClearingMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClearingMethod::Blockchain {
+                network,
+                confirmations_required,
+            } => {
+                write!(
+                    f,
+                    "Blockchain({:?}, {} conf)",
+                    network, confirmations_required
+                )
+            }
+            ClearingMethod::Clearinghouse {
+                cycle,
+                clearinghouse_id,
+            } => {
+                write!(f, "Clearinghouse({}, {})", clearinghouse_id, cycle)
+            }
+            ClearingMethod::Internal => write!(f, "Internal"),
+        }
+    }
+}
+
+// ============================================================================
+// INSTRUMENT TYPES
+// ============================================================================
 
 /// Type of financial instrument being traded
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -116,6 +305,11 @@ pub struct TradingPairConfig {
     /// Options-specific configuration (for OPTION type)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub option_config: Option<OptionConfig>,
+    /// Clearing method determines how trades are cleared and settled
+    /// - Blockchain: crypto assets settled on-chain with confirmations
+    /// - Clearinghouse: traditional securities settled via CCP with T+N cycle
+    #[serde(default)]
+    pub clearing_method: ClearingMethod,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -170,6 +364,7 @@ impl TradingPairConfig {
             taker_fee_rate: Decimal::new(2, 4), // 0.0002 = 0.02% (2 bps)
             futures_config: None,
             option_config: None,
+            clearing_method: ClearingMethod::default(),
         }
     }
 
@@ -226,6 +421,34 @@ impl TradingPairConfig {
     pub fn with_option_config(mut self, config: OptionConfig) -> Self {
         self.option_config = Some(config);
         self
+    }
+
+    /// Set clearing method (blockchain or clearinghouse)
+    pub fn with_clearing_method(mut self, clearing_method: ClearingMethod) -> Self {
+        self.clearing_method = clearing_method;
+        self
+    }
+
+    /// Configure as crypto asset (blockchain clearing)
+    pub fn as_crypto(self, network: Network) -> Self {
+        self.with_clearing_method(ClearingMethod::blockchain(network))
+    }
+
+    /// Configure as equity (clearinghouse clearing with T+1)
+    pub fn as_equity(self, clearinghouse_id: impl Into<String>) -> Self {
+        self.with_clearing_method(ClearingMethod::clearinghouse(
+            SettlementCycle::T1,
+            clearinghouse_id,
+        ))
+    }
+
+    /// Configure as equity with custom settlement cycle
+    pub fn as_equity_with_cycle(
+        self,
+        cycle: SettlementCycle,
+        clearinghouse_id: impl Into<String>,
+    ) -> Self {
+        self.with_clearing_method(ClearingMethod::clearinghouse(cycle, clearinghouse_id))
     }
 
     pub fn with_tick_size(mut self, tick_size: Price) -> Self {
@@ -419,5 +642,126 @@ mod tests {
 
         // Invalid quantity (not aligned to lot)
         assert!(!config.validate_quantity(Quantity::from(dec!(1.0001))));
+    }
+
+    // ========================================================================
+    // CLEARING METHOD TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_clearing_method_blockchain_bitcoin() {
+        let method = ClearingMethod::blockchain(Network::Bitcoin);
+        assert!(method.is_blockchain());
+        assert!(!method.is_clearinghouse());
+        assert_eq!(method.network(), Some(&Network::Bitcoin));
+        assert_eq!(method.settlement_cycle(), None);
+
+        if let ClearingMethod::Blockchain {
+            confirmations_required,
+            ..
+        } = method
+        {
+            assert_eq!(confirmations_required, 6);
+        }
+    }
+
+    #[test]
+    fn test_clearing_method_blockchain_ethereum() {
+        let method = ClearingMethod::blockchain(Network::Ethereum);
+        if let ClearingMethod::Blockchain {
+            confirmations_required,
+            ..
+        } = method
+        {
+            assert_eq!(confirmations_required, 12);
+        }
+    }
+
+    #[test]
+    fn test_clearing_method_clearinghouse() {
+        let method = ClearingMethod::clearinghouse(SettlementCycle::T1, "DTCC");
+        assert!(!method.is_blockchain());
+        assert!(method.is_clearinghouse());
+        assert_eq!(method.network(), None);
+        assert_eq!(method.settlement_cycle(), Some(SettlementCycle::T1));
+
+        if let ClearingMethod::Clearinghouse {
+            cycle,
+            clearinghouse_id,
+        } = method
+        {
+            assert_eq!(cycle, SettlementCycle::T1);
+            assert_eq!(clearinghouse_id, "DTCC");
+        }
+    }
+
+    #[test]
+    fn test_clearing_method_internal() {
+        let method = ClearingMethod::internal();
+        assert!(!method.is_blockchain());
+        assert!(!method.is_clearinghouse());
+        assert_eq!(method.network(), None);
+        assert_eq!(method.settlement_cycle(), None);
+    }
+
+    #[test]
+    fn test_settlement_cycle_days() {
+        assert_eq!(SettlementCycle::T0.days(), 0);
+        assert_eq!(SettlementCycle::T1.days(), 1);
+        assert_eq!(SettlementCycle::T2.days(), 2);
+        assert_eq!(SettlementCycle::T3.days(), 3);
+    }
+
+    #[test]
+    fn test_trading_pair_config_as_crypto() {
+        let symbol = Symbol::new("BTCUSDT").unwrap();
+        let config = TradingPairConfig::new(symbol, "BTC", "USDT").as_crypto(Network::Bitcoin);
+
+        assert!(config.clearing_method.is_blockchain());
+        assert_eq!(config.clearing_method.network(), Some(&Network::Bitcoin));
+    }
+
+    #[test]
+    fn test_trading_pair_config_as_equity() {
+        let symbol = Symbol::new("AAPL").unwrap();
+        let config = TradingPairConfig::new(symbol, "AAPL", "USD").as_equity("DTCC");
+
+        assert!(config.clearing_method.is_clearinghouse());
+        assert_eq!(
+            config.clearing_method.settlement_cycle(),
+            Some(SettlementCycle::T1)
+        );
+
+        if let ClearingMethod::Clearinghouse {
+            clearinghouse_id, ..
+        } = &config.clearing_method
+        {
+            assert_eq!(clearinghouse_id, "DTCC");
+        }
+    }
+
+    #[test]
+    fn test_trading_pair_config_as_equity_with_cycle() {
+        let symbol = Symbol::new("TSLA").unwrap();
+        let config = TradingPairConfig::new(symbol, "TSLA", "USD")
+            .as_equity_with_cycle(SettlementCycle::T2, "NSCC");
+
+        assert!(config.clearing_method.is_clearinghouse());
+        assert_eq!(
+            config.clearing_method.settlement_cycle(),
+            Some(SettlementCycle::T2)
+        );
+    }
+
+    #[test]
+    fn test_clearing_method_display() {
+        let blockchain = ClearingMethod::blockchain(Network::Bitcoin);
+        assert_eq!(format!("{}", blockchain), "Blockchain(Bitcoin, 6 conf)");
+
+        let clearinghouse = ClearingMethod::clearinghouse(SettlementCycle::T1, "DTCC");
+        assert_eq!(format!("{}", clearinghouse), "Clearinghouse(DTCC, T+1)");
+
+        let internal = ClearingMethod::internal();
+        assert_eq!(format!("{}", internal), "Internal");
     }
 }

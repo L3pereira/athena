@@ -43,12 +43,19 @@ pub use domain::{
     // DEX / AMM types
     AddLiquidityResult,
     AmmType,
+    // Blockchain simulator types
+    BlockchainError,
+    BlockchainSimulator,
+    BlockchainTx,
+    // Clearing method for crypto vs equities
+    ClearingMethod,
     Clock,
     ControllableClock,
     // Custodian and withdrawal types
     Custodian,
     CustodianId,
     CustodianType,
+    DepositAddress,
     ExchangeEvent,
     FeeSchedule,
     Instrument,
@@ -57,6 +64,7 @@ pub use domain::{
     LpPosition,
     MarginCalculator,
     Network,
+    NetworkConfig,
     Order,
     OrderBook,
     OrderId,
@@ -67,6 +75,7 @@ pub use domain::{
     Price,
     Quantity,
     RemoveLiquidityResult,
+    SettlementCycle,
     Side,
     StandardMarginCalculator,
     SwapOutput,
@@ -78,6 +87,8 @@ pub use domain::{
     Trade,
     TradeId,
     TradingPairConfig,
+    TxId,
+    TxStatus,
     WithdrawalConfig,
     WithdrawalError,
     WithdrawalId,
@@ -86,8 +97,9 @@ pub use domain::{
 };
 
 pub use infrastructure::{
-    BroadcastEventPublisher, InMemoryAccountRepository, InMemoryCustodianRepository,
-    InMemoryInstrumentRepository, InMemoryOrderBookRepository, InMemoryPoolRepository,
+    BlockchainAdapter, BlockchainAdapterError, BroadcastEventPublisher, InMemoryAccountRepository,
+    InMemoryCustodianRepository, InMemoryDepositAddressRegistry, InMemoryInstrumentRepository,
+    InMemoryOrderBookRepository, InMemoryPoolRepository, InMemoryProcessedDepositTracker,
     InMemoryWithdrawalRepository, SimulationClock, TokenBucketRateLimiter,
 };
 
@@ -101,16 +113,24 @@ pub use application::{
     CancelOrderCommand,
     CancelOrderResult,
     ConfirmWithdrawalCommand,
+    // Deposit use cases
+    Deposit,
+    DepositId,
+    DepositStatus,
     DepthResult,
     FailWithdrawalCommand,
     GetDepthQuery,
     LiquidityUseCase,
     LiquidityUseCaseError,
+    ProcessDepositError,
+    ProcessDepositUseCase,
+    ProcessDepositsResult,
     ProcessWithdrawalCommand,
     ProcessWithdrawalError,
     ProcessWithdrawalResult,
     ProcessWithdrawalUseCase,
     RateLimitConfig,
+    RegisterDepositAddressCommand,
     RemoveLiquidityCommand,
     RemoveLiquidityExecutionResult,
     RequestWithdrawalCommand,

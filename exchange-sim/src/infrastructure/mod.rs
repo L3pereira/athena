@@ -1,3 +1,4 @@
+mod blockchain_adapter;
 pub mod clock;
 pub mod config;
 pub mod event_publisher;
@@ -6,6 +7,10 @@ pub mod order_book_shard;
 pub mod rate_limiter;
 pub mod repositories;
 
+pub use blockchain_adapter::{
+    BlockchainAdapter, BlockchainAdapterError, InMemoryDepositAddressRegistry,
+    InMemoryProcessedDepositTracker,
+};
 pub use clock::SimulationClock;
 pub use config::{
     AccountConfig, ConfigError, CustodianConfig, DepositConfig, FuturesConfigDto, MarketConfig,

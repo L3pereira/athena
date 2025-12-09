@@ -8,12 +8,12 @@ pub mod value_objects;
 // Re-export entity types
 pub use entities::{
     Account, AccountError, AccountId, AccountStatus, AddLiquidityOutput, AddLiquidityResult,
-    AmmType, AssetBalance, Custodian, CustodianId, CustodianType, FeeSchedule, FuturesConfig,
-    InstrumentStatus, InstrumentType, LiquidityPool, Loan, LpPosition, MarginMode, Network,
-    OptionConfig, Order, OrderBook, OrderBookSnapshot, OrderStatus, PoolError, PoolId, Position,
-    PositionSide, PriceLevel, RemoveLiquidityOutput, RemoveLiquidityResult, SwapOutput, SwapResult,
-    Trade, TradingPairConfig, WithdrawalConfig, WithdrawalError, WithdrawalId, WithdrawalRequest,
-    WithdrawalStatus, WithdrawalStatusEvent,
+    AmmType, AssetBalance, ClearingMethod, Custodian, CustodianId, CustodianType, FeeSchedule,
+    FuturesConfig, InstrumentStatus, InstrumentType, LiquidityPool, Loan, LpPosition, MarginMode,
+    Network, OptionConfig, Order, OrderBook, OrderBookSnapshot, OrderStatus, PoolError, PoolId,
+    Position, PositionSide, PriceLevel, RemoveLiquidityOutput, RemoveLiquidityResult,
+    SettlementCycle, SwapOutput, SwapResult, Trade, TradingPairConfig, WithdrawalConfig,
+    WithdrawalError, WithdrawalId, WithdrawalRequest, WithdrawalStatus, WithdrawalStatusEvent,
 };
 
 // Re-export events
@@ -24,9 +24,11 @@ pub use events::{
 
 // Re-export services
 pub use services::{
-    AccountMarginCalculator, AgentTimeView, Clock, ClockSource, ControllableClock, DriftingClock,
-    ExchangeClock, ExternalClockAdapter, MarginCalculator, MarginStatus, NetworkSim, NtpSyncEvent,
-    OrderValidator, StandardMarginCalculator, TimeScale, TimeUpdate, WorldClock,
+    AccountMarginCalculator, AgentTimeView, BlockchainError, BlockchainSimulator, BlockchainState,
+    BlockchainTx, Clock, ClockSource, ControllableClock, DepositAddress, DriftingClock,
+    ExchangeClock, ExternalClockAdapter, MarginCalculator, MarginStatus, NetworkConfig, NetworkSim,
+    NtpSyncEvent, OrderValidator, StandardMarginCalculator, TimeScale, TimeUpdate, TxId, TxStatus,
+    WorldClock,
 };
 
 // Re-export value objects

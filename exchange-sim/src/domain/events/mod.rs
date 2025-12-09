@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export event types from use cases for convenience
 pub use crate::application::use_cases::{
-    LiquidityAddedEvent, LiquidityRemovedEvent, SwapExecutedEvent,
+    DepositCreditedEvent, LiquidityAddedEvent, LiquidityRemovedEvent, SwapExecutedEvent,
 };
 
 /// Domain events emitted by the exchange
@@ -37,6 +37,8 @@ pub enum ExchangeEvent {
     LiquidityAdded(LiquidityAddedEvent),
     /// Liquidity removed from pool
     LiquidityRemoved(LiquidityRemovedEvent),
+    /// Deposit credited to account
+    DepositCredited(DepositCreditedEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -17,7 +17,8 @@ pub use custodian::{
     Custodian, CustodianId, CustodianType, Network, WithdrawalConfig, WithdrawalError,
 };
 pub use instrument::{
-    FuturesConfig, InstrumentStatus, InstrumentType, OptionConfig, TradingPairConfig,
+    ClearingMethod, FuturesConfig, InstrumentStatus, InstrumentType, OptionConfig, SettlementCycle,
+    TradingPairConfig,
 };
 pub use liquidity_pool::{
     AddLiquidityOutput, AddLiquidityResult, AmmType, LiquidityPool, LpPosition, PoolError, PoolId,

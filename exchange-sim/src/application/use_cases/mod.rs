@@ -2,6 +2,7 @@ mod cancel_order;
 mod get_depth;
 mod get_exchange_info;
 mod liquidity;
+mod process_deposit;
 mod process_withdrawal;
 mod request_withdrawal;
 mod submit_order;
@@ -14,6 +15,10 @@ pub use liquidity::{
     AddLiquidityCommand, AddLiquidityExecutionResult, LiquidityAddedEvent, LiquidityRemovedEvent,
     LiquidityUseCase, LiquidityUseCaseError, RemoveLiquidityCommand,
     RemoveLiquidityExecutionResult,
+};
+pub use process_deposit::{
+    Deposit, DepositCreditedEvent, DepositId, DepositStatus, ProcessDepositError,
+    ProcessDepositUseCase, ProcessDepositsResult, RegisterDepositAddressCommand,
 };
 pub use process_withdrawal::{
     AddConfirmationCommand, ConfirmWithdrawalCommand, FailWithdrawalCommand,
