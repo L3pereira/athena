@@ -1,6 +1,11 @@
-use crate::domain::entities::{Order, OrderStatus, PriceLevel, Trade};
+use crate::domain::entities::{Order, OrderStatus, PriceLevel, Trade, WithdrawalStatusEvent};
 use crate::domain::value_objects::{OrderId, Price, Quantity, Side, Symbol, Timestamp};
 use serde::{Deserialize, Serialize};
+
+// Re-export event types from use cases for convenience
+pub use crate::application::use_cases::{
+    LiquidityAddedEvent, LiquidityRemovedEvent, SwapExecutedEvent,
+};
 
 /// Domain events emitted by the exchange
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +29,14 @@ pub enum ExchangeEvent {
     DepthUpdate(DepthUpdateEvent),
     /// Full order book snapshot
     DepthSnapshot(DepthSnapshotEvent),
+    /// Withdrawal status changed
+    WithdrawalStatus(WithdrawalStatusEvent),
+    /// DEX swap executed
+    SwapExecuted(SwapExecutedEvent),
+    /// Liquidity added to pool
+    LiquidityAdded(LiquidityAddedEvent),
+    /// Liquidity removed from pool
+    LiquidityRemoved(LiquidityRemovedEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

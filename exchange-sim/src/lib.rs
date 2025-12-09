@@ -40,26 +40,112 @@ pub mod presentation;
 
 // Re-export commonly used types
 pub use domain::{
-    Clock, ControllableClock, ExchangeEvent, FeeSchedule, Instrument, InstrumentStatus,
-    MarginCalculator, Order, OrderBook, OrderId, OrderStatus, OrderType, Price, Quantity, Side,
-    StandardMarginCalculator, Symbol, TimeInForce, TimeScale, Timestamp, Trade, TradeId,
+    // DEX / AMM types
+    AddLiquidityResult,
+    AmmType,
+    Clock,
+    ControllableClock,
+    // Custodian and withdrawal types
+    Custodian,
+    CustodianId,
+    CustodianType,
+    ExchangeEvent,
+    FeeSchedule,
+    Instrument,
+    InstrumentStatus,
+    LiquidityPool,
+    LpPosition,
+    MarginCalculator,
+    Network,
+    Order,
+    OrderBook,
+    OrderId,
+    OrderStatus,
+    OrderType,
+    PoolError,
+    PoolId,
+    Price,
+    Quantity,
+    RemoveLiquidityResult,
+    Side,
+    StandardMarginCalculator,
+    SwapOutput,
+    SwapResult,
+    Symbol,
+    TimeInForce,
+    TimeScale,
+    Timestamp,
+    Trade,
+    TradeId,
     TradingPairConfig,
+    WithdrawalConfig,
+    WithdrawalError,
+    WithdrawalId,
+    WithdrawalRequest,
+    WithdrawalStatus,
 };
 
 pub use infrastructure::{
-    BroadcastEventPublisher, InMemoryAccountRepository, InMemoryInstrumentRepository,
-    InMemoryOrderBookRepository, SimulationClock, TokenBucketRateLimiter,
+    BroadcastEventPublisher, InMemoryAccountRepository, InMemoryCustodianRepository,
+    InMemoryInstrumentRepository, InMemoryOrderBookRepository, InMemoryPoolRepository,
+    InMemoryWithdrawalRepository, SimulationClock, TokenBucketRateLimiter,
 };
 
 pub use application::{
-    CancelOrderCommand, CancelOrderResult, DepthResult, GetDepthQuery, RateLimitConfig,
-    SubmitOrderCommand, SubmitOrderResult,
+    // Withdrawal use cases
+    AddConfirmationCommand,
+    // DEX use cases
+    AddLiquidityCommand,
+    AddLiquidityExecutionResult,
+    // Order management
+    CancelOrderCommand,
+    CancelOrderResult,
+    ConfirmWithdrawalCommand,
+    DepthResult,
+    FailWithdrawalCommand,
+    GetDepthQuery,
+    LiquidityUseCase,
+    LiquidityUseCaseError,
+    ProcessWithdrawalCommand,
+    ProcessWithdrawalError,
+    ProcessWithdrawalResult,
+    ProcessWithdrawalUseCase,
+    RateLimitConfig,
+    RemoveLiquidityCommand,
+    RemoveLiquidityExecutionResult,
+    RequestWithdrawalCommand,
+    RequestWithdrawalResult,
+    RequestWithdrawalUseCase,
+    SubmitOrderCommand,
+    SubmitOrderResult,
+    SwapCommand,
+    SwapExecutionResult,
+    SwapQuote,
+    SwapUseCase,
+    SwapUseCaseError,
+    WithdrawalUseCaseError,
 };
 
 // Re-export port traits for integration tests
 pub use application::ports::{
-    AccountRepository, MarketDataReader, OrderBookReader, OrderBookRepository, OrderBookWriter,
+    AccountRepository,
+    // Custodian and withdrawal ports
+    CustodianReader,
+    CustodianWriter,
+    // Event publishing
+    EventPublisher,
+    // DEX ports
+    LpPositionReader,
+    LpPositionWriter,
+    MarketDataReader,
+    OrderBookReader,
+    OrderBookRepository,
+    OrderBookWriter,
     OrderLookup,
+    PoolReader,
+    PoolWriter,
+    WithdrawalReader,
+    WithdrawalWriter,
 };
 
 pub use presentation::{AppState, StreamManager, WsState, create_router};

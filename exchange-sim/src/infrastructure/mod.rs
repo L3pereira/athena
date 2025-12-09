@@ -8,8 +8,9 @@ pub mod repositories;
 
 pub use clock::SimulationClock;
 pub use config::{
-    AccountConfig, ConfigError, DepositConfig, FuturesConfigDto, MarketConfig, OptionConfigDto,
-    RateLimitConfigDto, SeedOrderConfig, ServerConfig, SimulatorConfig,
+    AccountConfig, ConfigError, CustodianConfig, DepositConfig, FuturesConfigDto, MarketConfig,
+    OptionConfigDto, PoolConfig, RateLimitConfigDto, SeedOrderConfig, ServerConfig,
+    SimulatorConfig, WithdrawalConfigDto,
 };
 pub use event_publisher::BroadcastEventPublisher;
 pub use matching::PriceTimeMatcher;
@@ -20,5 +21,6 @@ pub use order_book_shard::{
 };
 pub use rate_limiter::TokenBucketRateLimiter;
 pub use repositories::{
-    InMemoryAccountRepository, InMemoryInstrumentRepository, InMemoryOrderBookRepository,
+    InMemoryAccountRepository, InMemoryCustodianRepository, InMemoryInstrumentRepository,
+    InMemoryOrderBookRepository, InMemoryPoolRepository, InMemoryWithdrawalRepository,
 };

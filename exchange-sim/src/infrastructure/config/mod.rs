@@ -7,8 +7,8 @@
 //! - Exchange settings (rate limits, etc.)
 
 use crate::domain::{
-    ExerciseStyle, FuturesConfig, InstrumentType, OptionConfig, OptionType, Price, Quantity, Side,
-    Symbol, TimeInForce, TradingPairConfig,
+    AmmType, CustodianType, ExerciseStyle, FuturesConfig, InstrumentType, Network, OptionConfig,
+    OptionType, Price, Quantity, Side, Symbol, TimeInForce, TradingPairConfig,
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,14 @@ pub struct SimulatorConfig {
     /// Initial seed orders for liquidity
     #[serde(default)]
     pub seed_orders: Vec<SeedOrderConfig>,
+
+    /// Custodians for asset custody
+    #[serde(default)]
+    pub custodians: Vec<CustodianConfig>,
+
+    /// DEX liquidity pools
+    #[serde(default)]
+    pub pools: Vec<PoolConfig>,
 }
 
 fn default_exchange_name() -> String {
@@ -55,6 +63,8 @@ impl Default for SimulatorConfig {
             markets: Vec::new(),
             accounts: Vec::new(),
             seed_orders: Vec::new(),
+            custodians: Vec::new(),
+            pools: Vec::new(),
         }
     }
 }
@@ -87,6 +97,55 @@ impl SimulatorConfig {
 
         Self {
             markets,
+            ..Default::default()
+        }
+    }
+
+    /// Create with default custodians (hot/cold wallets)
+    pub fn with_default_custodians() -> Self {
+        let custodians = vec![
+            CustodianConfig {
+                name: "Ethereum Hot Wallet".to_string(),
+                custodian_type: CustodianType::HotWallet,
+                network: Network::Ethereum,
+                address: Some("0x...simulation".to_string()),
+                withdrawal_configs: vec![
+                    WithdrawalConfigDto {
+                        asset: "USDT".to_string(),
+                        fee: Decimal::new(5, 0),
+                        min_amount: Decimal::new(10, 0),
+                        max_amount: Decimal::new(100000, 0),
+                        confirmations: 12,
+                        processing_time_secs: 120,
+                    },
+                    WithdrawalConfigDto {
+                        asset: "ETH".to_string(),
+                        fee: Decimal::new(1, 3),
+                        min_amount: Decimal::new(1, 2),
+                        max_amount: Decimal::new(1000, 0),
+                        confirmations: 12,
+                        processing_time_secs: 120,
+                    },
+                ],
+            },
+            CustodianConfig {
+                name: "Bitcoin Hot Wallet".to_string(),
+                custodian_type: CustodianType::HotWallet,
+                network: Network::Bitcoin,
+                address: Some("bc1q...simulation".to_string()),
+                withdrawal_configs: vec![WithdrawalConfigDto {
+                    asset: "BTC".to_string(),
+                    fee: Decimal::new(1, 4),
+                    min_amount: Decimal::new(1, 3),
+                    max_amount: Decimal::new(100, 0),
+                    confirmations: 3,
+                    processing_time_secs: 600,
+                }],
+            },
+        ];
+
+        Self {
+            custodians,
             ..Default::default()
         }
     }
@@ -412,6 +471,105 @@ pub struct SeedOrderConfig {
     /// Time in force (defaults to GTC)
     #[serde(default)]
     pub time_in_force: Option<TimeInForce>,
+}
+
+/// Custodian configuration for asset custody
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustodianConfig {
+    /// Custodian name
+    pub name: String,
+    /// Type of custodian
+    #[serde(default)]
+    pub custodian_type: CustodianType,
+    /// Network this custodian operates on
+    #[serde(default)]
+    pub network: Network,
+    /// Wallet/contract address
+    #[serde(default)]
+    pub address: Option<String>,
+    /// Withdrawal configurations for this custodian
+    #[serde(default)]
+    pub withdrawal_configs: Vec<WithdrawalConfigDto>,
+}
+
+/// Withdrawal configuration DTO for JSON
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawalConfigDto {
+    /// Asset this config applies to
+    pub asset: String,
+    /// Fixed withdrawal fee
+    #[serde(default)]
+    pub fee: Decimal,
+    /// Minimum withdrawal amount
+    #[serde(default)]
+    pub min_amount: Decimal,
+    /// Maximum withdrawal amount
+    #[serde(default = "default_max_withdrawal")]
+    pub max_amount: Decimal,
+    /// Confirmations required
+    #[serde(default = "default_confirmations")]
+    pub confirmations: u32,
+    /// Processing time in seconds
+    #[serde(default = "default_processing_time")]
+    pub processing_time_secs: u64,
+}
+
+fn default_max_withdrawal() -> Decimal {
+    Decimal::new(1_000_000, 0)
+}
+
+fn default_confirmations() -> u32 {
+    6
+}
+
+fn default_processing_time() -> u64 {
+    60
+}
+
+/// Liquidity pool configuration for DEX
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolConfig {
+    /// First token
+    pub token_a: String,
+    /// Second token
+    pub token_b: String,
+    /// AMM type
+    #[serde(default)]
+    pub amm_type: AmmType,
+    /// Swap fee rate (e.g., 0.003 = 0.3%)
+    #[serde(default = "default_fee_rate")]
+    pub fee_rate: Decimal,
+    /// Initial reserve of token_a
+    #[serde(default)]
+    pub initial_reserve_a: Option<Decimal>,
+    /// Initial reserve of token_b
+    #[serde(default)]
+    pub initial_reserve_b: Option<Decimal>,
+}
+
+fn default_fee_rate() -> Decimal {
+    Decimal::new(3, 3) // 0.003 = 0.3%
+}
+
+impl PoolConfig {
+    /// Create a new pool config
+    pub fn new(token_a: &str, token_b: &str) -> Self {
+        Self {
+            token_a: token_a.to_string(),
+            token_b: token_b.to_string(),
+            amm_type: AmmType::ConstantProduct,
+            fee_rate: default_fee_rate(),
+            initial_reserve_a: None,
+            initial_reserve_b: None,
+        }
+    }
+
+    /// With initial reserves
+    pub fn with_reserves(mut self, reserve_a: Decimal, reserve_b: Decimal) -> Self {
+        self.initial_reserve_a = Some(reserve_a);
+        self.initial_reserve_b = Some(reserve_b);
+        self
+    }
 }
 
 /// Configuration errors
