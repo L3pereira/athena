@@ -61,10 +61,10 @@ impl AccountRepository for InMemoryAccountRepository {
 
     async fn get_or_create(&self, owner_id: &str) -> Account {
         // Check existing
-        if let Some(account_id) = self.owner_index.get(owner_id) {
-            if let Some(account) = self.accounts.get(account_id.value()) {
-                return account.value().clone();
-            }
+        if let Some(account_id) = self.owner_index.get(owner_id)
+            && let Some(account) = self.accounts.get(account_id.value())
+        {
+            return account.value().clone();
         }
 
         // Create new

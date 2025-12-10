@@ -129,15 +129,15 @@ impl OrderBookShard {
 
         // Optionally pin to CPU core
         #[cfg(target_os = "linux")]
-        if let Some(core) = self.config.pin_to_core {
-            if let Err(e) = self.pin_to_core(core) {
-                tracing::warn!(
-                    shard_id = self.config.shard_id,
-                    core = core,
-                    error = %e,
-                    "Failed to pin shard to core"
-                );
-            }
+        if let Some(core) = self.config.pin_to_core
+            && let Err(e) = self.pin_to_core(core)
+        {
+            tracing::warn!(
+                shard_id = self.config.shard_id,
+                core = core,
+                error = %e,
+                "Failed to pin shard to core"
+            );
         }
 
         loop {
@@ -262,12 +262,12 @@ impl OrderBookShard {
     ) -> CancelOrderResponse {
         let symbol_str = symbol.to_string();
 
-        if let Some(book) = self.books.get_mut(&symbol_str) {
-            if let Some(mut order) = book.remove_order(order_id) {
-                order.cancel(timestamp);
-                self.order_index.remove(&order_id);
-                return CancelOrderResponse::Cancelled(order);
-            }
+        if let Some(book) = self.books.get_mut(&symbol_str)
+            && let Some(mut order) = book.remove_order(order_id)
+        {
+            order.cancel(timestamp);
+            self.order_index.remove(&order_id);
+            return CancelOrderResponse::Cancelled(order);
         }
 
         CancelOrderResponse::NotFound

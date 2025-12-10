@@ -1,4 +1,4 @@
-use crate::domain::value_objects::{Price, Quantity};
+use crate::value_objects::{Price, Quantity};
 use serde::{Deserialize, Serialize};
 
 /// Represents a single price level in the order book

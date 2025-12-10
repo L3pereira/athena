@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "exchange-sim",
+    "trading-core",
+    "agent",
 ]
 
 [workspace.package]

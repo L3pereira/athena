@@ -263,13 +263,13 @@ where
         self.account_repo.save(account).await;
 
         // Deduct from custodian
-        if let Some(custodian_id) = withdrawal.custodian_id {
-            if let Some(mut custodian) = self.custodian_repo.get(&custodian_id).await {
-                custodian
-                    .withdraw(&withdrawal.asset, withdrawal.amount)
-                    .map_err(|e| ProcessWithdrawalError::CustodianError(e.to_string()))?;
-                self.custodian_repo.save(custodian).await;
-            }
+        if let Some(custodian_id) = withdrawal.custodian_id
+            && let Some(mut custodian) = self.custodian_repo.get(&custodian_id).await
+        {
+            custodian
+                .withdraw(&withdrawal.asset, withdrawal.amount)
+                .map_err(|e| ProcessWithdrawalError::CustodianError(e.to_string()))?;
+            self.custodian_repo.save(custodian).await;
         }
 
         Ok(())

@@ -3,11 +3,8 @@ mod custodian;
 mod instrument;
 mod liquidity_pool;
 mod loan;
-mod order;
 mod order_book;
 mod position;
-mod price_level;
-mod trade;
 mod withdrawal;
 
 pub use account::{
@@ -26,9 +23,9 @@ pub use liquidity_pool::{
 };
 // Note: ExerciseStyle and OptionType are re-exported from domain::instruments to avoid duplication
 pub use loan::Loan;
-pub use order::{Order, OrderStatus};
 pub use order_book::{OrderBook, OrderBookSnapshot};
 pub use position::{Position, PositionSide};
-pub use price_level::PriceLevel;
-pub use trade::Trade;
 pub use withdrawal::{WithdrawalId, WithdrawalRequest, WithdrawalStatus, WithdrawalStatusEvent};
+
+// Re-export from trading-core
+pub use trading_core::entities::{Order, OrderStatus, PriceLevel, Trade};

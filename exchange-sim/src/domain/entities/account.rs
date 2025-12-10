@@ -12,9 +12,10 @@ use uuid::Uuid;
 pub type AccountId = Uuid;
 
 /// Account status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AccountStatus {
     /// Normal trading
+    #[default]
     Active,
     /// Margin warning - approaching liquidation
     MarginCall,
@@ -22,12 +23,6 @@ pub enum AccountStatus {
     Liquidating,
     /// Frozen - no trading allowed
     Frozen,
-}
-
-impl Default for AccountStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 /// Margin mode for the account

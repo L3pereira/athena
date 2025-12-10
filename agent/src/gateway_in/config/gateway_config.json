@@ -1,0 +1,63 @@
+{
+  "exchanges": [
+    {
+      "id": "binance",
+      "name": "Binance",
+      "enabled": true,
+      "rest_url": "https://api.binance.com",
+      "ws_url": "wss://stream.binance.com:9443/ws",
+      "api_key": "",
+      "api_secret": "",
+      "rate_limits": {
+        "requests_per_second": 10,
+        "orders_per_second": 5
+      },
+      "symbols": ["BTCUSDT", "ETHUSDT"],
+      "market_data": {
+        "snapshot_interval_ms": 100,
+        "max_buffer_size": 1000
+      }
+    },
+    {
+      "id": "kraken",
+      "name": "Kraken",
+      "enabled": false,
+      "rest_url": "https://api.kraken.com",
+      "ws_url": "wss://ws.kraken.com",
+      "api_key": "",
+      "api_secret": "",
+      "rate_limits": {
+        "requests_per_second": 1,
+        "orders_per_second": 1
+      },
+      "symbols": ["XBT/USD", "ETH/USD"],
+      "market_data": {
+        "snapshot_interval_ms": 1000,
+        "max_buffer_size": 500
+      }
+    },
+    {
+      "id": "simulator",
+      "name": "Exchange Simulator",
+      "enabled": true,
+      "rest_url": "http://localhost:8080",
+      "ws_url": "ws://localhost:8080/ws",
+      "api_key": "test-api-key",
+      "api_secret": "",
+      "rate_limits": {
+        "requests_per_second": 100,
+        "orders_per_second": 50
+      },
+      "symbols": ["BTCUSDT", "ETHUSDT"],
+      "market_data": {
+        "snapshot_interval_ms": 100,
+        "max_buffer_size": 1000
+      }
+    }
+  ],
+  "global": {
+    "reconnect_delay_ms": 5000,
+    "max_reconnect_attempts": 10,
+    "heartbeat_interval_ms": 30000
+  }
+}

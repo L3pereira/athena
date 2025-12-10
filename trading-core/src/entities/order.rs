@@ -1,4 +1,4 @@
-use crate::domain::value_objects::{
+use crate::value_objects::{
     OrderId, OrderType, Price, Quantity, Side, Symbol, TimeInForce, Timestamp,
 };
 use chrono::Utc;

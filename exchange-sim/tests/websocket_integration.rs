@@ -204,10 +204,10 @@ async fn test_websocket_list_subscriptions() {
         assert_eq!(json["id"].as_u64().unwrap(), 2);
 
         // Should have subscriptions array
-        if let Some(result) = json.get("result") {
-            if let Some(subs) = result.as_array() {
-                assert_eq!(subs.len(), 2);
-            }
+        if let Some(result) = json.get("result")
+            && let Some(subs) = result.as_array()
+        {
+            assert_eq!(subs.len(), 2);
         }
     }
 }

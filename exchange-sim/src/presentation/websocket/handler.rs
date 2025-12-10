@@ -94,10 +94,10 @@ async fn handle_socket<C: Clock>(socket: WebSocket, state: Arc<WsState<C>>) {
                                             stream: msg.stream,
                                             data: msg.data,
                                         };
-                                        if let Ok(json) = serde_json::to_string(&response) {
-                                            if tx.send(json).await.is_err() {
-                                                break;
-                                            }
+                                        if let Ok(json) = serde_json::to_string(&response)
+                                            && tx.send(json).await.is_err()
+                                        {
+                                            break;
                                         }
                                     }
                                 }

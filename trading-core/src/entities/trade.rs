@@ -1,4 +1,4 @@
-use crate::domain::value_objects::{OrderId, Price, Quantity, Side, Symbol, Timestamp, TradeId};
+use crate::value_objects::{OrderId, Price, Quantity, Side, Symbol, Timestamp, TradeId};
 use chrono::Utc;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,7 @@ impl Trade {
     }
 
     /// Notional value of the trade (price * quantity)
-    pub fn notional(&self) -> rust_decimal::Decimal {
+    pub fn notional(&self) -> Decimal {
         self.price.inner() * self.quantity.inner()
     }
 
