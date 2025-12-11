@@ -43,6 +43,8 @@ async-trait = "0.1"
 
 # URL handling
 url = "2.5"
+arc-swap = "1.7.1"
+dashmap.workspace = true
 
 [dev-dependencies]
 # For integration tests - start exchange servers
