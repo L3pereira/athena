@@ -1,6 +1,5 @@
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use trading_core::{DepthSnapshotEvent, Price, PriceLevel, Quantity};
@@ -8,10 +7,11 @@ use trading_core::{DepthSnapshotEvent, Price, PriceLevel, Quantity};
 use crate::gateway_in::{ExchangeId, OrderBookWriter, QualifiedSymbol, StreamData};
 
 /// Order book state - immutable once created (copy-on-write)
+/// Uses i64 raw values internally for Price and Quantity
 #[derive(Clone, Debug, Default)]
 struct OrderBookState {
-    bids: BTreeMap<Decimal, Decimal>, // price -> quantity (descending for best bid)
-    asks: BTreeMap<Decimal, Decimal>, // price -> quantity (ascending for best ask)
+    bids: BTreeMap<i64, i64>, // price_raw -> quantity_raw (descending for best bid)
+    asks: BTreeMap<i64, i64>, // price_raw -> quantity_raw (ascending for best ask)
     last_update_id: u64,
     initialized: bool,
 }
@@ -87,18 +87,18 @@ impl OrderBookManager {
         };
 
         for [price, qty] in &snapshot.bids {
-            if let (Ok(p), Ok(q)) = (price.parse::<Decimal>(), qty.parse::<Decimal>())
+            if let (Ok(p), Ok(q)) = (Price::parse(price), Quantity::parse(qty))
                 && !q.is_zero()
             {
-                new_state.bids.insert(p, q);
+                new_state.bids.insert(p.raw(), q.raw());
             }
         }
 
         for [price, qty] in &snapshot.asks {
-            if let (Ok(p), Ok(q)) = (price.parse::<Decimal>(), qty.parse::<Decimal>())
+            if let (Ok(p), Ok(q)) = (Price::parse(price), Quantity::parse(qty))
                 && !q.is_zero()
             {
-                new_state.asks.insert(p, q);
+                new_state.asks.insert(p.raw(), q.raw());
             }
         }
 
@@ -144,21 +144,21 @@ impl OrderBookManager {
         let mut new_state = (**current).clone();
 
         for [price, qty] in bids {
-            if let (Ok(p), Ok(q)) = (price.parse::<Decimal>(), qty.parse::<Decimal>()) {
+            if let (Ok(p), Ok(q)) = (Price::parse(price), Quantity::parse(qty)) {
                 if q.is_zero() {
-                    new_state.bids.remove(&p);
+                    new_state.bids.remove(&p.raw());
                 } else {
-                    new_state.bids.insert(p, q);
+                    new_state.bids.insert(p.raw(), q.raw());
                 }
             }
         }
 
         for [price, qty] in asks {
-            if let (Ok(p), Ok(q)) = (price.parse::<Decimal>(), qty.parse::<Decimal>()) {
+            if let (Ok(p), Ok(q)) = (Price::parse(price), Quantity::parse(qty)) {
                 if q.is_zero() {
-                    new_state.asks.remove(&p);
+                    new_state.asks.remove(&p.raw());
                 } else {
-                    new_state.asks.insert(p, q);
+                    new_state.asks.insert(p.raw(), q.raw());
                 }
             }
         }
@@ -244,7 +244,7 @@ impl SharedOrderBook {
             .bids
             .iter()
             .next_back()
-            .map(|(p, q)| PriceLevel::new(Price::from(*p), Quantity::from(*q)))
+            .map(|(&p, &q)| PriceLevel::new(Price::from_raw(p), Quantity::from_raw(q)))
     }
 
     /// Get the best ask (lowest sell price) - lock-free
@@ -254,24 +254,24 @@ impl SharedOrderBook {
             .asks
             .iter()
             .next()
-            .map(|(p, q)| PriceLevel::new(Price::from(*p), Quantity::from(*q)))
+            .map(|(&p, &q)| PriceLevel::new(Price::from_raw(p), Quantity::from_raw(q)))
     }
 
     /// Get the mid price - lock-free
     pub fn mid_price(&self) -> Option<Price> {
         let state = self.load();
-        let best_bid = state.bids.iter().next_back()?.0;
-        let best_ask = state.asks.iter().next()?.0;
-        let mid = (*best_bid + *best_ask) / Decimal::TWO;
-        Some(Price::from(mid))
+        let best_bid = *state.bids.iter().next_back()?.0;
+        let best_ask = *state.asks.iter().next()?.0;
+        let mid = (best_bid + best_ask) / 2;
+        Some(Price::from_raw(mid))
     }
 
     /// Get the spread (best ask - best bid) - lock-free
     pub fn spread(&self) -> Option<Price> {
         let state = self.load();
-        let best_bid = state.bids.iter().next_back()?.0;
-        let best_ask = state.asks.iter().next()?.0;
-        Some(Price::from(*best_ask - *best_bid))
+        let best_bid = *state.bids.iter().next_back()?.0;
+        let best_ask = *state.asks.iter().next()?.0;
+        Some(Price::from_raw(best_ask - best_bid))
     }
 
     /// Get top N bid levels - lock-free
@@ -282,7 +282,7 @@ impl SharedOrderBook {
             .iter()
             .rev()
             .take(n)
-            .map(|(p, q)| PriceLevel::new(Price::from(*p), Quantity::from(*q)))
+            .map(|(&p, &q)| PriceLevel::new(Price::from_raw(p), Quantity::from_raw(q)))
             .collect()
     }
 
@@ -293,7 +293,7 @@ impl SharedOrderBook {
             .asks
             .iter()
             .take(n)
-            .map(|(p, q)| PriceLevel::new(Price::from(*p), Quantity::from(*q)))
+            .map(|(&p, &q)| PriceLevel::new(Price::from_raw(p), Quantity::from_raw(q)))
             .collect()
     }
 
@@ -310,17 +310,17 @@ impl SharedOrderBook {
     /// Get total bid volume up to a price level - lock-free
     pub fn bid_volume_to_price(&self, price: Price) -> Quantity {
         let state = self.load();
-        let price_dec = price.inner();
-        let total: Decimal = state.bids.range(price_dec..).map(|(_, q)| q).sum();
-        Quantity::from(total)
+        let price_raw = price.raw();
+        let total: i64 = state.bids.range(price_raw..).map(|(_, &q)| q).sum();
+        Quantity::from_raw(total)
     }
 
     /// Get total ask volume up to a price level - lock-free
     pub fn ask_volume_to_price(&self, price: Price) -> Quantity {
         let state = self.load();
-        let price_dec = price.inner();
-        let total: Decimal = state.asks.range(..=price_dec).map(|(_, q)| q).sum();
-        Quantity::from(total)
+        let price_raw = price.raw();
+        let total: i64 = state.asks.range(..=price_raw).map(|(_, &q)| q).sum();
+        Quantity::from_raw(total)
     }
 
     /// Get a consistent snapshot of bids and asks - lock-free
@@ -331,12 +331,12 @@ impl SharedOrderBook {
             .bids
             .iter()
             .rev()
-            .map(|(p, q)| PriceLevel::new(Price::from(*p), Quantity::from(*q)))
+            .map(|(&p, &q)| PriceLevel::new(Price::from_raw(p), Quantity::from_raw(q)))
             .collect();
         let asks = state
             .asks
             .iter()
-            .map(|(p, q)| PriceLevel::new(Price::from(*p), Quantity::from(*q)))
+            .map(|(&p, &q)| PriceLevel::new(Price::from_raw(p), Quantity::from_raw(q)))
             .collect();
         (bids, asks)
     }
@@ -367,9 +367,9 @@ mod tests {
         let bid2 = book.best_bid();
         let ask = book.best_ask();
 
-        assert_eq!(bid1.unwrap().price.to_string(), "50000");
-        assert_eq!(bid2.unwrap().price.to_string(), "50000");
-        assert_eq!(ask.unwrap().price.to_string(), "50100");
+        assert!((bid1.unwrap().price.to_f64() - 50000.0).abs() < 0.01);
+        assert!((bid2.unwrap().price.to_f64() - 50000.0).abs() < 0.01);
+        assert!((ask.unwrap().price.to_f64() - 50100.0).abs() < 0.01);
     }
 
     #[test]
@@ -399,8 +399,8 @@ mod tests {
 
         assert_eq!(bids.len(), 2);
         assert_eq!(asks.len(), 2);
-        assert_eq!(bids[0].price.to_string(), "50000"); // Best bid first
-        assert_eq!(asks[0].price.to_string(), "50100"); // Best ask first
+        assert!((bids[0].price.to_f64() - 50000.0).abs() < 0.01); // Best bid first
+        assert!((asks[0].price.to_f64() - 50100.0).abs() < 0.01); // Best ask first
     }
 
     #[test]
@@ -432,8 +432,8 @@ mod tests {
         let btc = manager.book("binance", "BTCUSDT");
         let eth = manager.book("binance", "ETHUSDT");
 
-        assert_eq!(btc.best_bid().unwrap().price.to_string(), "50000");
-        assert_eq!(eth.best_bid().unwrap().price.to_string(), "3000");
+        assert!((btc.best_bid().unwrap().price.to_f64() - 50000.0).abs() < 0.01);
+        assert!((eth.best_bid().unwrap().price.to_f64() - 3000.0).abs() < 0.01);
 
         assert_eq!(manager.symbols().len(), 2);
         assert_eq!(manager.symbols_for_exchange(&binance).len(), 2);
@@ -467,8 +467,8 @@ mod tests {
         let binance = manager.book("binance", "BTCUSDT");
         let kraken = manager.book("kraken", "BTCUSDT");
 
-        assert_eq!(binance.best_bid().unwrap().price.to_string(), "50000");
-        assert_eq!(kraken.best_bid().unwrap().price.to_string(), "50050");
+        assert!((binance.best_bid().unwrap().price.to_f64() - 50000.0).abs() < 0.01);
+        assert!((kraken.best_bid().unwrap().price.to_f64() - 50050.0).abs() < 0.01);
 
         assert_eq!(
             manager.symbols_for_exchange(&ExchangeId::binance()).len(),
@@ -505,7 +505,7 @@ mod tests {
         assert!(manager.apply_update_internal(&exchange, &update));
 
         let btc = manager.book("binance", "BTCUSDT");
-        assert_eq!(btc.best_bid().unwrap().quantity.inner(), Decimal::from(2));
+        assert!((btc.best_bid().unwrap().quantity.to_f64() - 2.0).abs() < 0.01);
         assert_eq!(btc.last_update_id(), 102);
     }
 
@@ -541,7 +541,7 @@ mod tests {
 
         let btc = manager.book("binance", "BTCUSDT");
         // Best bid should now be 49900
-        assert_eq!(btc.best_bid().unwrap().price.to_string(), "49900");
+        assert!((btc.best_bid().unwrap().price.to_f64() - 49900.0).abs() < 0.01);
     }
 
     #[test]
@@ -560,7 +560,7 @@ mod tests {
 
         let btc = manager.book("binance", "BTCUSDT");
         assert!(btc.is_initialized());
-        assert_eq!(btc.best_bid().unwrap().price.to_string(), "50000");
+        assert!((btc.best_bid().unwrap().price.to_f64() - 50000.0).abs() < 0.01);
     }
 
     #[test]
@@ -584,8 +584,8 @@ mod tests {
         // Both handles see the same data
         assert!(btc1.is_initialized());
         assert!(btc2.is_initialized());
-        assert_eq!(btc1.best_bid().unwrap().price.to_string(), "50000");
-        assert_eq!(btc2.best_bid().unwrap().price.to_string(), "50000");
+        assert!((btc1.best_bid().unwrap().price.to_f64() - 50000.0).abs() < 0.01);
+        assert!((btc2.best_bid().unwrap().price.to_f64() - 50000.0).abs() < 0.01);
     }
 
     #[test]
@@ -617,7 +617,7 @@ mod tests {
 
         // Original data unchanged
         let btc = manager.book("binance", "BTCUSDT");
-        assert_eq!(btc.best_bid().unwrap().quantity.inner(), Decimal::from(1));
+        assert!((btc.best_bid().unwrap().quantity.to_f64() - 1.0).abs() < 0.01);
         assert_eq!(btc.last_update_id(), 100);
     }
 

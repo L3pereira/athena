@@ -10,10 +10,9 @@ use exchange_sim::{
     AccountRepository, AddConfirmationCommand, ConfirmWithdrawalCommand, Custodian,
     CustodianReader, CustodianType, CustodianWriter, FailWithdrawalCommand, Network,
     ProcessWithdrawalCommand, ProcessWithdrawalUseCase, RequestWithdrawalCommand,
-    RequestWithdrawalUseCase, SimulationClock, WithdrawalConfig, WithdrawalReader,
+    RequestWithdrawalUseCase, SimulationClock, Value, WithdrawalConfig, WithdrawalReader,
     WithdrawalStatus,
 };
-use rust_decimal_macros::dec;
 use std::sync::Arc;
 
 /// Setup helper for withdrawal tests
@@ -36,31 +35,26 @@ impl WithdrawalTestContext {
         }
     }
 
-    async fn setup_account_with_balance(
-        &self,
-        owner: &str,
-        asset: &str,
-        amount: rust_decimal::Decimal,
-    ) {
+    async fn setup_account_with_balance(&self, owner: &str, asset: &str, amount: Value) {
         let mut account = self.account_repo.get_or_create(owner).await;
         account.deposit(asset, amount);
         self.account_repo.save(account).await;
     }
 
-    async fn setup_custodian(&self, network: Network, assets: Vec<(&str, rust_decimal::Decimal)>) {
+    async fn setup_custodian(&self, network: Network, assets: Vec<(&str, Value)>) {
         let mut custodian =
             Custodian::new("Test Wallet", CustodianType::HotWallet, network.clone());
 
         for (asset, fee) in assets {
             let config = WithdrawalConfig::new(asset, network.clone())
                 .with_fee(fee)
-                .with_min_amount(dec!(10))
-                .with_max_amount(dec!(100000))
+                .with_min_amount(Value::from_int(10))
+                .with_max_amount(Value::from_int(100000))
                 .with_confirmations(6)
                 .with_processing_time(60);
             custodian = custodian.with_withdrawal_config(config);
             // Add sufficient balance to the custodian for withdrawals
-            custodian.deposit(asset, dec!(1000000));
+            custodian.deposit(asset, Value::from_int(1000000));
         }
 
         self.custodian_repo.save(custodian).await;
@@ -117,7 +111,10 @@ mod custodian_tests {
         // Create custodian with withdrawal configs
         ctx.setup_custodian(
             Network::Ethereum,
-            vec![("USDT", dec!(5)), ("ETH", dec!(0.001))],
+            vec![
+                ("USDT", Value::from_int(5)),
+                ("ETH", Value::from_f64(0.001)),
+            ],
         )
         .await;
 
@@ -136,7 +133,7 @@ mod custodian_tests {
     async fn test_custodian_supports_asset() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let supporting = ctx.custodian_repo.get_supporting_asset("USDT").await;
@@ -150,9 +147,9 @@ mod custodian_tests {
     async fn test_multiple_custodians_different_networks() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
-        ctx.setup_custodian(Network::Bitcoin, vec![("BTC", dec!(0.0001))])
+        ctx.setup_custodian(Network::Bitcoin, vec![("BTC", Value::from_f64(0.0001))])
             .await;
 
         let eth_custodians = ctx.custodian_repo.get_by_network(&Network::Ethereum).await;
@@ -178,16 +175,16 @@ mod withdrawal_request_tests {
         let ctx = WithdrawalTestContext::new();
 
         // Setup: account with 1000 USDT, custodian supporting USDT
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(1000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(1000))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let use_case = ctx.request_withdrawal_use_case();
 
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(100),
+            amount: Value::from_int(100),
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -197,31 +194,31 @@ mod withdrawal_request_tests {
         assert!(result.is_ok());
 
         let result = result.unwrap();
-        assert_eq!(result.withdrawal.amount, dec!(100));
-        assert_eq!(result.fee, dec!(5));
+        assert_eq!(result.withdrawal.amount, Value::from_int(100));
+        assert_eq!(result.fee, Value::from_int(5));
         assert_eq!(result.withdrawal.status, WithdrawalStatus::Pending);
 
         // Check funds are locked
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
         let balance = account.balance("USDT");
-        assert_eq!(balance.available, dec!(895)); // 1000 - 100 - 5 = 895
-        assert_eq!(balance.locked, dec!(105)); // 100 + 5 fee
+        assert_eq!(balance.available, Value::from_int(895)); // 1000 - 100 - 5 = 895
+        assert_eq!(balance.locked, Value::from_int(105)); // 100 + 5 fee
     }
 
     #[tokio::test]
     async fn test_request_withdrawal_insufficient_balance() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(50))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(50))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let use_case = ctx.request_withdrawal_use_case();
 
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(100), // More than balance
+            amount: Value::from_int(100), // More than balance
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -235,7 +232,7 @@ mod withdrawal_request_tests {
     async fn test_request_withdrawal_no_custodian() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(1000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(1000))
             .await;
         // No custodian setup
 
@@ -243,7 +240,7 @@ mod withdrawal_request_tests {
 
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(100),
+            amount: Value::from_int(100),
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -257,16 +254,16 @@ mod withdrawal_request_tests {
     async fn test_request_withdrawal_below_minimum() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(1000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(1000))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let use_case = ctx.request_withdrawal_use_case();
 
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(5), // Below minimum of 10
+            amount: Value::from_int(5), // Below minimum of 10
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -289,9 +286,9 @@ mod withdrawal_processing_tests {
         let ctx = WithdrawalTestContext::new();
 
         // Setup
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(1000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(1000))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let request_use_case = ctx.request_withdrawal_use_case();
@@ -300,7 +297,7 @@ mod withdrawal_processing_tests {
         // Step 1: Request withdrawal
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(100),
+            amount: Value::from_int(100),
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -342,17 +339,17 @@ mod withdrawal_processing_tests {
         // Verify account balance updated
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
         let balance = account.balance("USDT");
-        assert_eq!(balance.available, dec!(895)); // 1000 - 105
-        assert_eq!(balance.locked, dec!(0));
+        assert_eq!(balance.available, Value::from_int(895)); // 1000 - 105
+        assert_eq!(balance.locked, Value::ZERO);
     }
 
     #[tokio::test]
     async fn test_withdrawal_cancellation() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(1000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(1000))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let request_use_case = ctx.request_withdrawal_use_case();
@@ -361,7 +358,7 @@ mod withdrawal_processing_tests {
         // Request withdrawal
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(100),
+            amount: Value::from_int(100),
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -377,17 +374,17 @@ mod withdrawal_processing_tests {
         // Verify funds returned
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
         let balance = account.balance("USDT");
-        assert_eq!(balance.available, dec!(1000)); // Full balance restored
-        assert_eq!(balance.locked, dec!(0));
+        assert_eq!(balance.available, Value::from_int(1000)); // Full balance restored
+        assert_eq!(balance.locked, Value::ZERO);
     }
 
     #[tokio::test]
     async fn test_withdrawal_failure() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(1000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(1000))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let request_use_case = ctx.request_withdrawal_use_case();
@@ -396,7 +393,7 @@ mod withdrawal_processing_tests {
         // Request and start processing
         let command = RequestWithdrawalCommand {
             asset: "USDT".to_string(),
-            amount: dec!(100),
+            amount: Value::from_int(100),
             network: Network::Ethereum,
             destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
             memo: None,
@@ -423,17 +420,17 @@ mod withdrawal_processing_tests {
         // Verify funds returned
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
         let balance = account.balance("USDT");
-        assert_eq!(balance.available, dec!(1000));
-        assert_eq!(balance.locked, dec!(0));
+        assert_eq!(balance.available, Value::from_int(1000));
+        assert_eq!(balance.locked, Value::ZERO);
     }
 
     #[tokio::test]
     async fn test_get_pending_withdrawals() {
         let ctx = WithdrawalTestContext::new();
 
-        ctx.setup_account_with_balance("trader1", "USDT", dec!(5000))
+        ctx.setup_account_with_balance("trader1", "USDT", Value::from_int(5000))
             .await;
-        ctx.setup_custodian(Network::Ethereum, vec![("USDT", dec!(5))])
+        ctx.setup_custodian(Network::Ethereum, vec![("USDT", Value::from_int(5))])
             .await;
 
         let request_use_case = ctx.request_withdrawal_use_case();
@@ -442,7 +439,7 @@ mod withdrawal_processing_tests {
         for i in 0..3 {
             let command = RequestWithdrawalCommand {
                 asset: "USDT".to_string(),
-                amount: dec!(100) + rust_decimal::Decimal::from(i),
+                amount: Value::from_int(100 + i),
                 network: Network::Ethereum,
                 destination_address: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
                 memo: None,

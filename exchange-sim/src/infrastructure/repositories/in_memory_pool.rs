@@ -1,10 +1,9 @@
 //! In-memory liquidity pool repository implementation
 
 use crate::application::ports::{LpPositionReader, LpPositionWriter, PoolReader, PoolWriter};
-use crate::domain::{AccountId, LiquidityPool, LpPosition, PoolId};
+use crate::domain::{AccountId, LiquidityPool, LpPosition, PoolId, Value};
 use async_trait::async_trait;
 use dashmap::DashMap;
-use rust_decimal::Decimal;
 use std::sync::Arc;
 
 /// In-memory pool repository
@@ -131,7 +130,7 @@ impl LpPositionWriter for InMemoryPoolRepository {
         &self,
         pool_id: &PoolId,
         account_id: &AccountId,
-        lp_tokens: Decimal,
+        lp_tokens: Value,
     ) {
         if let Some(mut pos) = self.positions.get_mut(&(*pool_id, *account_id)) {
             pos.lp_tokens = lp_tokens;
@@ -146,7 +145,7 @@ impl LpPositionWriter for InMemoryPoolRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
+    use crate::domain::PRICE_SCALE;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -154,15 +153,15 @@ mod tests {
         let repo = InMemoryPoolRepository::new();
 
         let mut pool = LiquidityPool::new("USDT", "BTC");
-        pool.reserve_a = dec!(10000);
-        pool.reserve_b = dec!(1);
+        pool.reserve_a = Value::from_int(10000);
+        pool.reserve_b = Value::from_int(1);
         let id = pool.id;
 
         repo.save(pool).await;
 
         let retrieved = repo.get(&id).await.unwrap();
         assert_eq!(retrieved.token_a, "USDT");
-        assert_eq!(retrieved.reserve_a, dec!(10000));
+        assert_eq!(retrieved.reserve_a, Value::from_int(10000));
     }
 
     #[tokio::test]
@@ -191,18 +190,24 @@ mod tests {
         repo.save(pool).await;
 
         let account_id = Uuid::new_v4();
-        let position = LpPosition::new(pool_id, account_id, dec!(100), dec!(0.001));
+        // LpPosition::new(pool_id, account_id, lp_tokens, entry_price_ratio_raw)
+        let position = LpPosition::new(
+            pool_id,
+            account_id,
+            Value::from_int(100),
+            PRICE_SCALE as i128 / 1000, // 0.001 as raw
+        );
 
         repo.save_position(position).await;
 
         let retrieved = repo.get_position(&pool_id, &account_id).await.unwrap();
-        assert_eq!(retrieved.lp_tokens, dec!(100));
+        assert_eq!(retrieved.lp_tokens, Value::from_int(100));
 
         // Update tokens
-        repo.update_position_tokens(&pool_id, &account_id, dec!(150))
+        repo.update_position_tokens(&pool_id, &account_id, Value::from_int(150))
             .await;
         let updated = repo.get_position(&pool_id, &account_id).await.unwrap();
-        assert_eq!(updated.lp_tokens, dec!(150));
+        assert_eq!(updated.lp_tokens, Value::from_int(150));
     }
 
     #[tokio::test]

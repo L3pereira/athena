@@ -118,8 +118,8 @@ mod tests {
             client_order_id: None,
             symbol: Symbol::new("BTCUSDT").unwrap(),
             side: Side::Buy,
-            price: Some(Price::from(rust_decimal::Decimal::from(100))),
-            quantity: Quantity::from(rust_decimal::Decimal::from(1)),
+            price: Some(Price::from_int(100)),
+            quantity: Quantity::from_int(1),
             timestamp: chrono::Utc::now(),
         })
     }

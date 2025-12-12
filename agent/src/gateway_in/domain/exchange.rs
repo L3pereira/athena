@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Unique identifier for an exchange
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ExchangeId(String);
 
 impl ExchangeId {
@@ -48,7 +49,7 @@ impl ExchangeId {
 }
 
 /// A symbol qualified with its exchange
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QualifiedSymbol {
     pub exchange: ExchangeId,
     pub symbol: String,

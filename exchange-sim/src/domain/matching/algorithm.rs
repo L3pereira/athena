@@ -203,8 +203,10 @@ impl MatchingAlgorithm for ProRataMatcher {
         for (idx, order) in resting_orders.iter().enumerate() {
             let order_qty = order.remaining_quantity();
             // Pro-rata formula: (order_qty / total_resting) * available_to_fill
-            let ratio = order_qty.inner() / total_resting.inner();
-            let allocation = Quantity::from(ratio * available_to_fill.inner());
+            // Using i128 for precision to avoid overflow
+            let allocation_raw = (order_qty.raw() as i128 * available_to_fill.raw() as i128)
+                / total_resting.raw() as i128;
+            let allocation = Quantity::from_raw(allocation_raw as i64);
 
             // Apply minimum allocation filter
             if allocation >= self.min_allocation {
@@ -270,7 +272,6 @@ mod tests {
     use super::*;
     use crate::domain::{Symbol, TimeInForce};
     use chrono::Utc;
-    use rust_decimal_macros::dec;
 
     fn make_order(side: Side, qty: Quantity, price: Price) -> Order {
         Order::new_limit(
@@ -286,22 +287,22 @@ mod tests {
     fn test_price_time_fifo() {
         let matcher = PriceTimeMatcher::new();
         let now = Utc::now();
-        let price = Price::from(dec!(100));
+        let price = Price::from_int(100);
 
         // Two resting sell orders
         let mut resting = VecDeque::new();
-        resting.push_back(make_order(Side::Sell, Quantity::from(dec!(5)), price));
-        resting.push_back(make_order(Side::Sell, Quantity::from(dec!(10)), price));
+        resting.push_back(make_order(Side::Sell, Quantity::from_int(5), price));
+        resting.push_back(make_order(Side::Sell, Quantity::from_int(10), price));
 
         // Aggressor buy for 8
-        let mut aggressor = make_order(Side::Buy, Quantity::from(dec!(8)), price);
+        let mut aggressor = make_order(Side::Buy, Quantity::from_int(8), price);
 
         let result = matcher.match_at_level(&mut aggressor, &mut resting, price, now);
 
         // Should fill first order (5) completely, then 3 from second
         assert_eq!(result.trades.len(), 2);
-        assert_eq!(result.trades[0].quantity, Quantity::from(dec!(5)));
-        assert_eq!(result.trades[1].quantity, Quantity::from(dec!(3)));
+        assert_eq!(result.trades[0].quantity, Quantity::from_int(5));
+        assert_eq!(result.trades[1].quantity, Quantity::from_int(3));
         assert_eq!(result.remaining_qty, Quantity::ZERO);
         assert_eq!(result.filled_order_ids.len(), 1); // First order fully filled
     }
@@ -310,24 +311,24 @@ mod tests {
     fn test_pro_rata_allocation() {
         let matcher = ProRataMatcher::new();
         let now = Utc::now();
-        let price = Price::from(dec!(100));
+        let price = Price::from_int(100);
 
         // Two resting orders: 30 and 70 (30% and 70% of total)
         let mut resting = VecDeque::new();
-        resting.push_back(make_order(Side::Sell, Quantity::from(dec!(30)), price));
-        resting.push_back(make_order(Side::Sell, Quantity::from(dec!(70)), price));
+        resting.push_back(make_order(Side::Sell, Quantity::from_int(30), price));
+        resting.push_back(make_order(Side::Sell, Quantity::from_int(70), price));
 
         // Aggressor buy for 10
-        let mut aggressor = make_order(Side::Buy, Quantity::from(dec!(10)), price);
+        let mut aggressor = make_order(Side::Buy, Quantity::from_int(10), price);
 
         let result = matcher.match_at_level(&mut aggressor, &mut resting, price, now);
 
         // Pro-rata: 30% of 10 = 3, 70% of 10 = 7
         assert_eq!(result.trades.len(), 2);
         // First trade should be ~3 (30% of 10)
-        assert_eq!(result.trades[0].quantity, Quantity::from(dec!(3)));
+        assert_eq!(result.trades[0].quantity, Quantity::from_int(3));
         // Second trade should be ~7 (70% of 10)
-        assert_eq!(result.trades[1].quantity, Quantity::from(dec!(7)));
+        assert_eq!(result.trades[1].quantity, Quantity::from_int(7));
         assert_eq!(result.remaining_qty, Quantity::ZERO);
     }
 }

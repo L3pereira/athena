@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 
-use crate::domain::{AccountId, LiquidityPool, LpPosition, PoolId};
+use crate::domain::{AccountId, LiquidityPool, LpPosition, PoolId, Value};
 
 /// Read operations for liquidity pools
 #[async_trait]
@@ -56,7 +56,7 @@ pub trait LpPositionWriter: Send + Sync {
         &self,
         pool_id: &PoolId,
         account_id: &AccountId,
-        lp_tokens: rust_decimal::Decimal,
+        lp_tokens: Value,
     );
 
     /// Delete an LP position

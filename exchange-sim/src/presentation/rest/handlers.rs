@@ -3,7 +3,6 @@ use axum::{
     extract::{Query, State},
     http::HeaderMap,
 };
-use rust_decimal::Decimal;
 use std::sync::Arc;
 
 use crate::application::{
@@ -112,21 +111,26 @@ pub async fn create_order<C: Clock>(
 
     let quantity = req
         .quantity
-        .parse::<Decimal>()
+        .parse::<f64>()
+        .map(Quantity::from_f64)
         .map_err(|_| ApiError::invalid_parameter("quantity", "invalid decimal"))?;
 
     let price = if let Some(p) = &req.price {
-        Some(Price::from(p.parse::<Decimal>().map_err(|_| {
-            ApiError::invalid_parameter("price", "invalid decimal")
-        })?))
+        Some(
+            p.parse::<f64>()
+                .map(Price::from_f64)
+                .map_err(|_| ApiError::invalid_parameter("price", "invalid decimal"))?,
+        )
     } else {
         None
     };
 
     let stop_price = if let Some(p) = &req.stop_price {
-        Some(Price::from(p.parse::<Decimal>().map_err(|_| {
-            ApiError::invalid_parameter("stopPrice", "invalid decimal")
-        })?))
+        Some(
+            p.parse::<f64>()
+                .map(Price::from_f64)
+                .map_err(|_| ApiError::invalid_parameter("stopPrice", "invalid decimal"))?,
+        )
     } else {
         None
     };
@@ -143,7 +147,7 @@ pub async fn create_order<C: Clock>(
         symbol: req.symbol,
         side,
         order_type,
-        quantity: Quantity::from(quantity),
+        quantity,
         price,
         stop_price,
         time_in_force,
@@ -171,7 +175,7 @@ pub async fn create_order<C: Clock>(
         .map(|(i, f)| FillResponse {
             price: f.price.to_string(),
             qty: f.quantity.to_string(),
-            commission: f.commission.to_string(),
+            commission: f.commission.to_f64().to_string(),
             commission_asset: "USDT".to_string(), // Simplified
             trade_id: i as i64,
         })

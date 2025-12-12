@@ -1,9 +1,7 @@
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 
 use super::InstrumentSpec;
-use crate::domain::{Price, Quantity};
+use crate::domain::{PRICE_SCALE, Price, Quantity, Rate, Value};
 
 /// A perpetual swap contract (e.g., BTC-PERP)
 ///
@@ -23,12 +21,12 @@ pub struct PerpetualContract {
     pub tick_size: Price,
     /// Minimum quantity increment
     pub lot_size: Quantity,
-    /// Contract multiplier (notional per contract)
-    pub multiplier: Decimal,
-    /// Initial margin requirement
-    pub initial_margin: Decimal,
-    /// Maintenance margin requirement
-    pub maintenance_margin: Decimal,
+    /// Contract multiplier (notional per contract) - scaled by PRICE_SCALE
+    pub multiplier: i64,
+    /// Initial margin requirement (in bps, e.g., 100 = 1%)
+    pub initial_margin_bps: i64,
+    /// Maintenance margin requirement (in bps, e.g., 50 = 0.5%)
+    pub maintenance_margin_bps: i64,
     /// Funding interval in hours (typically 8)
     pub funding_interval_hours: u32,
     /// Whether this is an inverse contract
@@ -41,11 +39,11 @@ impl PerpetualContract {
         Self {
             underlying: underlying.into(),
             symbol: symbol.into(),
-            tick_size: Price::from(dec!(0.01)),
-            lot_size: Quantity::from(dec!(0.001)),
-            multiplier: dec!(1),
-            initial_margin: dec!(0.01),      // 1% = 100x max leverage
-            maintenance_margin: dec!(0.005), // 0.5%
+            tick_size: Price::from_f64(0.01),
+            lot_size: Quantity::from_f64(0.001),
+            multiplier: PRICE_SCALE,    // 1.0 as fixed-point
+            initial_margin_bps: 100,    // 1% = 100x max leverage
+            maintenance_margin_bps: 50, // 0.5%
             funding_interval_hours: 8,
             is_inverse: false,
         }
@@ -56,11 +54,11 @@ impl PerpetualContract {
         Self {
             underlying: underlying.into(),
             symbol: symbol.into(),
-            tick_size: Price::from(dec!(0.5)),
-            lot_size: Quantity::from(dec!(1)), // Contract quantity
-            multiplier: dec!(1),               // USD per contract
-            initial_margin: dec!(0.01),
-            maintenance_margin: dec!(0.005),
+            tick_size: Price::from_f64(0.5),
+            lot_size: Quantity::from_f64(1.0), // Contract quantity
+            multiplier: PRICE_SCALE,           // 1 USD per contract
+            initial_margin_bps: 100,
+            maintenance_margin_bps: 50,
             funding_interval_hours: 8,
             is_inverse: true,
         }
@@ -76,18 +74,18 @@ impl PerpetualContract {
         self
     }
 
-    pub fn with_multiplier(mut self, mult: Decimal) -> Self {
-        self.multiplier = mult;
+    pub fn with_multiplier(mut self, mult: f64) -> Self {
+        self.multiplier = (mult * PRICE_SCALE as f64) as i64;
         self
     }
 
-    pub fn with_initial_margin(mut self, margin: Decimal) -> Self {
-        self.initial_margin = margin;
+    pub fn with_initial_margin_bps(mut self, margin_bps: i64) -> Self {
+        self.initial_margin_bps = margin_bps;
         self
     }
 
-    pub fn with_maintenance_margin(mut self, margin: Decimal) -> Self {
-        self.maintenance_margin = margin;
+    pub fn with_maintenance_margin_bps(mut self, margin_bps: i64) -> Self {
+        self.maintenance_margin_bps = margin_bps;
         self
     }
 
@@ -98,21 +96,25 @@ impl PerpetualContract {
 
     /// Calculate position value for linear perp
     /// Value = price * quantity * multiplier
-    pub fn position_value_linear(&self, price: Price, quantity: Quantity) -> Decimal {
-        price.inner() * quantity.inner() * self.multiplier
+    pub fn position_value_linear(&self, price: Price, quantity: Quantity) -> Value {
+        let notional = price.mul_qty(quantity);
+        // Apply multiplier
+        Value::from_raw(notional.raw() * self.multiplier as i128 / PRICE_SCALE as i128)
     }
 
     /// Calculate position value for inverse perp
     /// Value = quantity * multiplier / price (in base currency)
-    pub fn position_value_inverse(&self, price: Price, quantity: Quantity) -> Decimal {
-        if price.is_zero() {
-            return Decimal::ZERO;
+    pub fn position_value_inverse(&self, price: Price, quantity: Quantity) -> Value {
+        if price.raw() == 0 {
+            return Value::ZERO;
         }
-        quantity.inner() * self.multiplier / price.inner()
+        // quantity * multiplier / price
+        let num = quantity.raw() as i128 * self.multiplier as i128;
+        Value::from_raw(num / price.raw() as i128)
     }
 
     /// Calculate position value based on contract type
-    pub fn position_value(&self, price: Price, quantity: Quantity) -> Decimal {
+    pub fn position_value(&self, price: Price, quantity: Quantity) -> Value {
         if self.is_inverse {
             self.position_value_inverse(price, quantity)
         } else {
@@ -127,42 +129,56 @@ impl PerpetualContract {
         exit_price: Price,
         quantity: Quantity,
         is_long: bool,
-    ) -> Decimal {
-        let direction = if is_long { dec!(1) } else { dec!(-1) };
+    ) -> Value {
+        let direction: i128 = if is_long { 1 } else { -1 };
 
         if self.is_inverse {
             // Inverse PnL = qty * mult * (1/entry - 1/exit) for long
-            // When price goes UP (entry < exit), 1/entry > 1/exit, so (1/entry - 1/exit) > 0
-            let entry_inv = Decimal::ONE / entry_price.inner();
-            let exit_inv = Decimal::ONE / exit_price.inner();
-            direction * quantity.inner() * self.multiplier * (entry_inv - exit_inv)
+            // Compute: qty * mult * SCALE^2 / entry - qty * mult * SCALE^2 / exit
+            // Then divide by SCALE to get final value
+            if entry_price.raw() == 0 || exit_price.raw() == 0 {
+                return Value::ZERO;
+            }
+            let qty_mult = quantity.raw() as i128 * self.multiplier as i128;
+            let entry_inv = (PRICE_SCALE as i128 * PRICE_SCALE as i128) / entry_price.raw() as i128;
+            let exit_inv = (PRICE_SCALE as i128 * PRICE_SCALE as i128) / exit_price.raw() as i128;
+            let pnl = direction * qty_mult * (entry_inv - exit_inv) / PRICE_SCALE as i128;
+            Value::from_raw(pnl / PRICE_SCALE as i128)
         } else {
             // Linear PnL = qty * mult * (exit - entry) for long
-            direction
-                * quantity.inner()
-                * self.multiplier
-                * (exit_price.inner() - entry_price.inner())
+            let price_diff = exit_price.raw() as i128 - entry_price.raw() as i128;
+            let pnl = direction * quantity.raw() as i128 * self.multiplier as i128 * price_diff
+                / (PRICE_SCALE as i128 * PRICE_SCALE as i128);
+            Value::from_raw(pnl)
         }
+    }
+
+    /// Maximum leverage based on initial margin
+    pub fn max_leverage(&self) -> i64 {
+        if self.initial_margin_bps == 0 {
+            return 0;
+        }
+        10000 / self.initial_margin_bps // 100 bps = 1% = 100x leverage
     }
 
     /// Common perpetuals
     pub fn btc_perp() -> Self {
         Self::linear("BTC", "BTC-PERP")
-            .with_tick_size(Price::from(dec!(0.1)))
-            .with_lot_size(Quantity::from(dec!(0.001)))
+            .with_tick_size(Price::from_f64(0.1))
+            .with_lot_size(Quantity::from_f64(0.001))
     }
 
     pub fn eth_perp() -> Self {
         Self::linear("ETH", "ETH-PERP")
-            .with_tick_size(Price::from(dec!(0.01)))
-            .with_lot_size(Quantity::from(dec!(0.01)))
+            .with_tick_size(Price::from_f64(0.01))
+            .with_lot_size(Quantity::from_f64(0.01))
     }
 
     pub fn btcusd_inverse() -> Self {
         Self::inverse("BTC", "BTCUSD")
-            .with_multiplier(dec!(100)) // $100 per contract
-            .with_tick_size(Price::from(dec!(0.5)))
-            .with_lot_size(Quantity::from(dec!(1)))
+            .with_multiplier(100.0) // $100 per contract
+            .with_tick_size(Price::from_f64(0.5))
+            .with_lot_size(Quantity::from_f64(1.0))
     }
 }
 
@@ -195,8 +211,8 @@ impl InstrumentSpec for PerpetualContract {
         true
     }
 
-    fn margin_requirement(&self) -> Decimal {
-        self.initial_margin
+    fn margin_requirement(&self) -> Rate {
+        Rate::from_bps(self.initial_margin_bps)
     }
 
     fn is_shortable(&self) -> bool {
@@ -219,14 +235,15 @@ mod tests {
         let perp = PerpetualContract::btc_perp();
         assert_eq!(perp.underlying, "BTC");
         assert!(!perp.is_inverse);
-        assert_eq!(perp.max_leverage(), dec!(100));
+        assert_eq!(perp.max_leverage(), 100);
     }
 
     #[test]
     fn test_inverse_perp() {
         let perp = PerpetualContract::btcusd_inverse();
         assert!(perp.is_inverse);
-        assert_eq!(perp.multiplier, dec!(100));
+        // multiplier is 100 * PRICE_SCALE
+        assert_eq!(perp.multiplier, 100 * PRICE_SCALE);
     }
 
     #[test]
@@ -235,47 +252,48 @@ mod tests {
 
         // Long 1 BTC, entry 50000, exit 51000 = +1000 profit
         let pnl = perp.calculate_pnl(
-            Price::from(dec!(50000)),
-            Price::from(dec!(51000)),
-            Quantity::from(dec!(1)),
+            Price::from_int(50000),
+            Price::from_int(51000),
+            Quantity::from_int(1),
             true,
         );
-        assert_eq!(pnl, dec!(1000));
+        assert_eq!(pnl, Value::from_int(1000));
 
         // Short 1 BTC, entry 50000, exit 51000 = -1000 loss
         let pnl = perp.calculate_pnl(
-            Price::from(dec!(50000)),
-            Price::from(dec!(51000)),
-            Quantity::from(dec!(1)),
+            Price::from_int(50000),
+            Price::from_int(51000),
+            Quantity::from_int(1),
             false,
         );
-        assert_eq!(pnl, dec!(-1000));
+        assert_eq!(pnl, Value::from_int(-1000));
     }
 
     #[test]
     fn test_inverse_pnl() {
-        let perp = PerpetualContract::inverse("BTC", "BTCUSD").with_multiplier(dec!(100));
+        let perp = PerpetualContract::inverse("BTC", "BTCUSD").with_multiplier(100.0);
 
         // Long 100 contracts ($100 each), entry 50000, exit 51000
-        // PnL = 100 * 100 * (1/50000 - 1/51000) = 0.0392... BTC
+        // PnL should be positive for long when price goes up
         let pnl = perp.calculate_pnl(
-            Price::from(dec!(50000)),
-            Price::from(dec!(51000)),
-            Quantity::from(dec!(100)),
+            Price::from_int(50000),
+            Price::from_int(51000),
+            Quantity::from_int(100),
             true,
         );
-        assert!(pnl > Decimal::ZERO);
+        assert!(pnl.raw() > 0);
     }
 
     #[test]
     fn test_position_value() {
         let linear = PerpetualContract::btc_perp();
-        let value = linear.position_value(Price::from(dec!(50000)), Quantity::from(dec!(1)));
-        assert_eq!(value, dec!(50000));
+        let value = linear.position_value(Price::from_int(50000), Quantity::from_int(1));
+        assert_eq!(value, Value::from_int(50000));
 
         let inverse = PerpetualContract::btcusd_inverse();
         // 100 contracts at $50000 = 100 * 100 / 50000 = 0.2 BTC
-        let value = inverse.position_value(Price::from(dec!(50000)), Quantity::from(dec!(100)));
-        assert_eq!(value, dec!(0.2));
+        let value = inverse.position_value(Price::from_int(50000), Quantity::from_int(100));
+        // Expected: 0.2 BTC = 0.2 * PRICE_SCALE
+        assert_eq!(value.to_f64(), 0.2);
     }
 }

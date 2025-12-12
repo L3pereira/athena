@@ -89,6 +89,7 @@ pub use domain::{
     TradingPairConfig,
     TxId,
     TxStatus,
+    Value,
     WithdrawalConfig,
     WithdrawalError,
     WithdrawalId,
@@ -376,12 +377,12 @@ impl Exchange<SimulationClock> {
             // Ensure order book exists
             let mut book = exchange.order_book_repo.get_or_create(&symbol).await;
 
-            // Create the seed order
+            // Create the seed order (price and quantity are already our types)
             let order = Order::new_limit(
                 symbol.clone(),
                 seed_order.side,
-                Quantity::from(seed_order.quantity),
-                Price::from(seed_order.price),
+                seed_order.quantity,
+                seed_order.price,
                 seed_order.time_in_force.unwrap_or(TimeInForce::Gtc),
             );
 

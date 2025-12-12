@@ -1,7 +1,6 @@
 use crate::domain::entities::Network;
 use crate::domain::instruments::{ExerciseStyle, OptionType};
-use crate::domain::value_objects::{Price, Quantity, Symbol};
-use rust_decimal::Decimal;
+use crate::domain::value_objects::{PRICE_SCALE, Price, Quantity, Rate, Symbol, Value};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -240,16 +239,16 @@ pub struct OptionConfig {
 pub struct FuturesConfig {
     /// Expiration timestamp (Unix millis) - None for perpetuals
     pub expiration_ms: Option<i64>,
-    /// Contract multiplier (e.g., 1 BTC = 100 contracts)
-    pub contract_multiplier: Decimal,
+    /// Contract multiplier scaled by PRICE_SCALE (e.g., PRICE_SCALE = 1.0)
+    pub contract_multiplier: i64,
     /// Settlement asset (e.g., "USDT" for USDT-margined)
     pub settlement_asset: String,
     /// Maximum leverage allowed
     pub max_leverage: u32,
-    /// Maintenance margin rate
-    pub maintenance_margin_rate: Decimal,
-    /// Initial margin rate
-    pub initial_margin_rate: Decimal,
+    /// Maintenance margin rate in basis points (e.g., 40 = 0.4%)
+    pub maintenance_margin_bps: i64,
+    /// Initial margin rate in basis points (e.g., 100 = 1%)
+    pub initial_margin_bps: i64,
     /// Funding rate interval in hours (for perpetuals)
     pub funding_interval_hours: Option<u32>,
 }
@@ -258,13 +257,25 @@ impl Default for FuturesConfig {
     fn default() -> Self {
         Self {
             expiration_ms: None,
-            contract_multiplier: Decimal::ONE,
+            contract_multiplier: PRICE_SCALE, // 1.0 scaled
             settlement_asset: "USDT".to_string(),
             max_leverage: 125,
-            maintenance_margin_rate: Decimal::new(4, 3), // 0.4%
-            initial_margin_rate: Decimal::new(1, 2),     // 1%
+            maintenance_margin_bps: 40, // 0.4% = 40 bps
+            initial_margin_bps: 100,    // 1% = 100 bps
             funding_interval_hours: Some(8),
         }
+    }
+}
+
+impl FuturesConfig {
+    /// Get maintenance margin as Rate
+    pub fn maintenance_margin_rate(&self) -> Rate {
+        Rate::from_bps(self.maintenance_margin_bps)
+    }
+
+    /// Get initial margin as Rate
+    pub fn initial_margin_rate(&self) -> Rate {
+        Rate::from_bps(self.initial_margin_bps)
     }
 }
 
@@ -286,7 +297,7 @@ pub struct TradingPairConfig {
     /// Minimum quantity increment
     pub lot_size: Quantity,
     /// Minimum notional value (price * quantity)
-    pub min_notional: Decimal,
+    pub min_notional: Value,
     /// Minimum quantity allowed
     pub min_quantity: Quantity,
     /// Maximum quantity allowed
@@ -295,10 +306,10 @@ pub struct TradingPairConfig {
     pub status: InstrumentStatus,
     /// Allowed order types for this instrument
     pub order_types: Vec<String>,
-    /// Maker fee rate (negative = rebate, e.g., -0.0001 = -0.01% rebate)
-    pub maker_fee_rate: Decimal,
-    /// Taker fee rate (e.g., 0.001 = 0.1%)
-    pub taker_fee_rate: Decimal,
+    /// Maker fee rate in basis points (negative = rebate, e.g., -1 = -0.01% rebate)
+    pub maker_fee_bps: i64,
+    /// Taker fee rate in basis points (e.g., 10 = 0.1%)
+    pub taker_fee_bps: i64,
     /// Futures-specific configuration (for PERPETUAL_FUTURES and FUTURES types)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub futures_config: Option<FuturesConfig>,
@@ -345,11 +356,11 @@ impl TradingPairConfig {
             symbol,
             base_asset: base_asset.into(),
             quote_asset: quote_asset.into(),
-            tick_size: Price::from(Decimal::new(1, 2)), // 0.01
-            lot_size: Quantity::from(Decimal::new(1, 3)), // 0.001
-            min_notional: Decimal::new(10, 0),          // 10
-            min_quantity: Quantity::from(Decimal::new(1, 6)), // 0.000001
-            max_quantity: Quantity::from(Decimal::new(9000, 0)), // 9000
+            tick_size: Price::from_f64(0.01),           // 0.01
+            lot_size: Quantity::from_f64(0.001),        // 0.001
+            min_notional: Value::from_int(10),          // 10
+            min_quantity: Quantity::from_f64(0.000001), // 0.000001
+            max_quantity: Quantity::from_f64(9000.0),   // 9000
             status: InstrumentStatus::Trading,
             order_types: vec![
                 "LIMIT".to_string(),
@@ -360,8 +371,8 @@ impl TradingPairConfig {
                 "TAKE_PROFIT".to_string(),
                 "TAKE_PROFIT_LIMIT".to_string(),
             ],
-            maker_fee_rate: Decimal::new(1, 4), // 0.0001 = 0.01% (1 bps)
-            taker_fee_rate: Decimal::new(2, 4), // 0.0002 = 0.02% (2 bps)
+            maker_fee_bps: 1, // 0.01% (1 bps)
+            taker_fee_bps: 2, // 0.02% (2 bps)
             futures_config: None,
             option_config: None,
             clearing_method: ClearingMethod::default(),
@@ -461,40 +472,51 @@ impl TradingPairConfig {
         self
     }
 
-    pub fn with_min_notional(mut self, min_notional: Decimal) -> Self {
+    pub fn with_min_notional(mut self, min_notional: Value) -> Self {
         self.min_notional = min_notional;
         self
     }
 
-    /// Set maker fee rate (can be negative for rebates)
-    pub fn with_maker_fee(mut self, rate: Decimal) -> Self {
-        self.maker_fee_rate = rate;
+    /// Set maker fee rate in basis points (can be negative for rebates)
+    pub fn with_maker_fee_bps(mut self, bps: i64) -> Self {
+        self.maker_fee_bps = bps;
         self
     }
 
-    /// Set taker fee rate
-    pub fn with_taker_fee(mut self, rate: Decimal) -> Self {
-        self.taker_fee_rate = rate;
+    /// Set taker fee rate in basis points
+    pub fn with_taker_fee_bps(mut self, bps: i64) -> Self {
+        self.taker_fee_bps = bps;
         self
     }
 
-    /// Set both maker and taker fees at once
-    pub fn with_fees(mut self, maker: Decimal, taker: Decimal) -> Self {
-        self.maker_fee_rate = maker;
-        self.taker_fee_rate = taker;
+    /// Set both maker and taker fees at once (in basis points)
+    pub fn with_fees_bps(mut self, maker_bps: i64, taker_bps: i64) -> Self {
+        self.maker_fee_bps = maker_bps;
+        self.taker_fee_bps = taker_bps;
         self
+    }
+
+    /// Get maker fee as Rate
+    pub fn maker_fee_rate(&self) -> Rate {
+        Rate::from_bps(self.maker_fee_bps)
+    }
+
+    /// Get taker fee as Rate
+    pub fn taker_fee_rate(&self) -> Rate {
+        Rate::from_bps(self.taker_fee_bps)
     }
 
     /// Calculate fee for a trade
     /// Returns (fee_amount, is_rebate)
-    pub fn calculate_fee(&self, notional: Decimal, is_maker: bool) -> (Decimal, bool) {
-        let rate = if is_maker {
-            self.maker_fee_rate
+    pub fn calculate_fee(&self, notional: Value, is_maker: bool) -> (Value, bool) {
+        let rate_bps = if is_maker {
+            self.maker_fee_bps
         } else {
-            self.taker_fee_rate
+            self.taker_fee_bps
         };
-        let fee = notional * rate;
-        (fee.abs(), rate < Decimal::ZERO)
+        let rate = Rate::from_bps(rate_bps);
+        let fee = rate.apply_to_value(notional);
+        (Value::from_raw(fee.raw().abs()), rate_bps < 0)
     }
 
     pub fn is_trading(&self) -> bool {
@@ -520,7 +542,7 @@ impl TradingPairConfig {
     }
 
     pub fn validate_notional(&self, price: Price, quantity: Quantity) -> bool {
-        let notional = price.inner() * quantity.inner();
+        let notional = price.mul_qty(quantity);
         notional >= self.min_notional
     }
 
@@ -536,7 +558,6 @@ impl TradingPairConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_trading_pair_config_default_fees() {
@@ -544,70 +565,69 @@ mod tests {
         let config = TradingPairConfig::new(symbol, "BTC", "USDT");
 
         // Default fees: 1 bps maker, 2 bps taker
-        assert_eq!(config.maker_fee_rate, Decimal::new(1, 4)); // 0.0001
-        assert_eq!(config.taker_fee_rate, Decimal::new(2, 4)); // 0.0002
+        assert_eq!(config.maker_fee_bps, 1);
+        assert_eq!(config.taker_fee_bps, 2);
     }
 
     #[test]
     fn test_trading_pair_config_with_fees() {
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let config = TradingPairConfig::new(symbol, "BTC", "USDT")
-            .with_maker_fee(dec!(0.0005)) // 5 bps
-            .with_taker_fee(dec!(0.001)); // 10 bps
+            .with_maker_fee_bps(5) // 5 bps
+            .with_taker_fee_bps(10); // 10 bps
 
-        assert_eq!(config.maker_fee_rate, dec!(0.0005));
-        assert_eq!(config.taker_fee_rate, dec!(0.001));
+        assert_eq!(config.maker_fee_bps, 5);
+        assert_eq!(config.taker_fee_bps, 10);
     }
 
     #[test]
     fn test_trading_pair_config_with_fees_combined() {
         let symbol = Symbol::new("ETHUSDT").unwrap();
-        let config =
-            TradingPairConfig::new(symbol, "ETH", "USDT").with_fees(dec!(-0.0001), dec!(0.0003)); // Maker rebate, taker fee
+        let config = TradingPairConfig::new(symbol, "ETH", "USDT").with_fees_bps(-1, 3); // Maker rebate, taker fee
 
-        assert_eq!(config.maker_fee_rate, dec!(-0.0001)); // Rebate
-        assert_eq!(config.taker_fee_rate, dec!(0.0003));
+        assert_eq!(config.maker_fee_bps, -1); // Rebate
+        assert_eq!(config.taker_fee_bps, 3);
     }
 
     #[test]
     fn test_calculate_fee_taker() {
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let config =
-            TradingPairConfig::new(symbol, "BTC", "USDT").with_fees(dec!(0.0001), dec!(0.0002));
+        let config = TradingPairConfig::new(symbol, "BTC", "USDT").with_fees_bps(1, 2);
 
         // $10,000 trade as taker
-        let notional = dec!(10000);
+        let notional = Value::from_int(10000);
         let (fee_amount, is_rebate) = config.calculate_fee(notional, false);
 
-        assert_eq!(fee_amount, dec!(2.00)); // $2.00 taker fee
+        // 2 bps of 10000 = 2.00
+        assert_eq!(fee_amount, Value::from_int(2));
         assert!(!is_rebate);
     }
 
     #[test]
     fn test_calculate_fee_maker() {
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let config =
-            TradingPairConfig::new(symbol, "BTC", "USDT").with_fees(dec!(0.0001), dec!(0.0002));
+        let config = TradingPairConfig::new(symbol, "BTC", "USDT").with_fees_bps(1, 2);
 
         // $10,000 trade as maker
-        let notional = dec!(10000);
+        let notional = Value::from_int(10000);
         let (fee_amount, is_rebate) = config.calculate_fee(notional, true);
 
-        assert_eq!(fee_amount, dec!(1.00)); // $1.00 maker fee
+        // 1 bps of 10000 = 1.00
+        assert_eq!(fee_amount, Value::from_int(1));
         assert!(!is_rebate);
     }
 
     #[test]
     fn test_calculate_fee_maker_rebate() {
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let config =
-            TradingPairConfig::new(symbol, "BTC", "USDT").with_fees(dec!(-0.0001), dec!(0.0002)); // Negative maker = rebate
+        let config = TradingPairConfig::new(symbol, "BTC", "USDT").with_fees_bps(-1, 2); // Negative maker = rebate
 
         // $10,000 trade as maker
-        let notional = dec!(10000);
+        let notional = Value::from_int(10000);
         let (fee_amount, is_rebate) = config.calculate_fee(notional, true);
 
-        assert_eq!(fee_amount, dec!(1.00)); // $1.00 rebate amount (absolute value)
+        // 1 bps of 10000 = 1.00 (absolute value)
+        assert_eq!(fee_amount, Value::from_int(1));
         assert!(is_rebate); // This is a rebate!
     }
 
@@ -615,33 +635,33 @@ mod tests {
     fn test_validate_price_tick_size() {
         let symbol = Symbol::new("BTCUSDT").unwrap();
         let config =
-            TradingPairConfig::new(symbol, "BTC", "USDT").with_tick_size(Price::from(dec!(0.01)));
+            TradingPairConfig::new(symbol, "BTC", "USDT").with_tick_size(Price::from_f64(0.01));
 
         // Valid prices (aligned to 0.01 tick)
-        assert!(config.validate_price(Price::from(dec!(100.00))));
-        assert!(config.validate_price(Price::from(dec!(100.01))));
-        assert!(config.validate_price(Price::from(dec!(99.99))));
+        assert!(config.validate_price(Price::from_f64(100.00)));
+        assert!(config.validate_price(Price::from_f64(100.01)));
+        assert!(config.validate_price(Price::from_f64(99.99)));
 
         // Invalid price (not aligned to tick)
-        assert!(!config.validate_price(Price::from(dec!(100.001))));
+        assert!(!config.validate_price(Price::from_f64(100.001)));
 
         // Zero price is invalid
-        assert!(!config.validate_price(Price::from(dec!(0))));
+        assert!(!config.validate_price(Price::ZERO));
     }
 
     #[test]
     fn test_validate_quantity_lot_size() {
         let symbol = Symbol::new("BTCUSDT").unwrap();
-        let config = TradingPairConfig::new(symbol, "BTC", "USDT")
-            .with_lot_size(Quantity::from(dec!(0.001)));
+        let config =
+            TradingPairConfig::new(symbol, "BTC", "USDT").with_lot_size(Quantity::from_f64(0.001));
 
         // Valid quantities (aligned to 0.001 lot)
-        assert!(config.validate_quantity(Quantity::from(dec!(1.000))));
-        assert!(config.validate_quantity(Quantity::from(dec!(0.001))));
-        assert!(config.validate_quantity(Quantity::from(dec!(1.234))));
+        assert!(config.validate_quantity(Quantity::from_f64(1.000)));
+        assert!(config.validate_quantity(Quantity::from_f64(0.001)));
+        assert!(config.validate_quantity(Quantity::from_f64(1.234)));
 
         // Invalid quantity (not aligned to lot)
-        assert!(!config.validate_quantity(Quantity::from(dec!(1.0001))));
+        assert!(!config.validate_quantity(Quantity::from_f64(1.0001)));
     }
 
     // ========================================================================

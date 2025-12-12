@@ -87,7 +87,6 @@ impl AccountRepository for InMemoryAccountRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[tokio::test]
     async fn test_get_or_create() {
@@ -102,16 +101,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_and_get() {
+        use crate::domain::Value;
         let repo = InMemoryAccountRepository::new();
 
         let mut account = Account::new("user1");
-        account.deposit("USDT", dec!(10000));
+        account.deposit("USDT", Value::from_int(10000));
         let id = account.id;
 
         repo.save(account).await;
 
         let retrieved = repo.get(id).await.unwrap();
-        assert_eq!(retrieved.balance("USDT").available, dec!(10000));
+        assert_eq!(retrieved.balance("USDT").available, Value::from_int(10000));
     }
 
     #[tokio::test]

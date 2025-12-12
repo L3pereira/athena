@@ -357,8 +357,6 @@ mod tests {
     use super::*;
     use crate::domain::{Price, Quantity, Side, TimeInForce};
     use chrono::Utc;
-    use rust_decimal_macros::dec;
-
     #[tokio::test]
     async fn test_submit_order_to_shard() {
         let config = ShardManagerConfig::default().with_num_shards(2);
@@ -368,8 +366,8 @@ mod tests {
         let order = Order::new_limit(
             symbol,
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(50000)),
+            Quantity::from_int(1),
+            Price::from_int(50000),
             TimeInForce::Gtc,
         );
 
@@ -392,8 +390,8 @@ mod tests {
         let btc_order = Order::new_limit(
             btc_symbol.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(50000)),
+            Quantity::from_int(1),
+            Price::from_int(50000),
             TimeInForce::Gtc,
         );
 
@@ -402,8 +400,8 @@ mod tests {
         let eth_order = Order::new_limit(
             eth_symbol.clone(),
             Side::Buy,
-            Quantity::from(dec!(10)),
-            Price::from(dec!(3000)),
+            Quantity::from_int(10),
+            Price::from_int(3000),
             TimeInForce::Gtc,
         );
 
@@ -424,12 +422,12 @@ mod tests {
         let symbol = Symbol::new("BTCUSDT").unwrap();
 
         // Submit some orders
-        for i in 1..=5 {
-            let price = Price::from(rust_decimal::Decimal::from(50000 - i * 100));
+        for i in 1..=5i64 {
+            let price = Price::from_int(50000 - i * 100);
             let order = Order::new_limit(
                 symbol.clone(),
                 Side::Buy,
-                Quantity::from(dec!(1)),
+                Quantity::from_int(1),
                 price,
                 TimeInForce::Gtc,
             );

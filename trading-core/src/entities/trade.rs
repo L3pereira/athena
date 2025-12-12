@@ -1,6 +1,5 @@
-use crate::value_objects::{OrderId, Price, Quantity, Side, Symbol, Timestamp, TradeId};
+use crate::value_objects::{OrderId, Price, Quantity, Side, Symbol, Timestamp, TradeId, Value};
 use chrono::Utc;
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,9 +16,9 @@ pub struct Trade {
     /// Buyer was the maker (their order was resting in the book)
     pub buyer_is_maker: bool,
     /// Fee paid by maker (negative = rebate received)
-    pub maker_fee: Decimal,
+    pub maker_fee: Value,
     /// Fee paid by taker
-    pub taker_fee: Decimal,
+    pub taker_fee: Value,
     /// Asset in which fees are denominated (typically quote asset)
     pub fee_asset: String,
 }
@@ -43,8 +42,8 @@ impl Trade {
             taker_side,
             timestamp: Utc::now(),
             buyer_is_maker: taker_side == Side::Sell,
-            maker_fee: Decimal::ZERO,
-            taker_fee: Decimal::ZERO,
+            maker_fee: Value::ZERO,
+            taker_fee: Value::ZERO,
             fee_asset: String::new(),
         }
     }
@@ -62,8 +61,8 @@ impl Trade {
     /// Set fees for this trade
     pub fn with_fees(
         mut self,
-        maker_fee: Decimal,
-        taker_fee: Decimal,
+        maker_fee: Value,
+        taker_fee: Value,
         fee_asset: impl Into<String>,
     ) -> Self {
         self.maker_fee = maker_fee;
@@ -73,7 +72,7 @@ impl Trade {
     }
 
     /// Get the fee for a specific side (buyer or seller)
-    pub fn fee_for_buyer(&self) -> Decimal {
+    pub fn fee_for_buyer(&self) -> Value {
         if self.buyer_is_maker {
             self.maker_fee
         } else {
@@ -82,7 +81,7 @@ impl Trade {
     }
 
     /// Get the fee for the seller
-    pub fn fee_for_seller(&self) -> Decimal {
+    pub fn fee_for_seller(&self) -> Value {
         if self.buyer_is_maker {
             self.taker_fee
         } else {
@@ -91,8 +90,8 @@ impl Trade {
     }
 
     /// Notional value of the trade (price * quantity)
-    pub fn notional(&self) -> Decimal {
-        self.price.inner() * self.quantity.inner()
+    pub fn notional(&self) -> Value {
+        self.price.mul_qty(self.quantity)
     }
 
     /// Returns the maker order ID

@@ -17,7 +17,6 @@ use exchange_sim::{
     },
 };
 use futures_util::{SinkExt, StreamExt};
-use rust_decimal_macros::dec;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -399,8 +398,8 @@ async fn test_rest_and_websocket_together() {
         .json(&json!({
             "owner_id": "ws_trader",
             "deposits": [
-                { "asset": "USDT", "amount": "100000" },
-                { "asset": "BTC", "amount": "10" }
+                { "asset": "USDT", "amount": 100000.0 },
+                { "asset": "BTC", "amount": 10.0 }
             ]
         }))
         .send()
@@ -434,8 +433,8 @@ async fn test_rest_and_websocket_together() {
     let sell_order = exchange_sim::domain::Order::new_limit(
         sym.clone(),
         Side::Sell,
-        Quantity::from(dec!(5)),
-        Price::from(dec!(50000)),
+        Quantity::from_int(5),
+        Price::from_int(50000),
         TimeInForce::Gtc,
     );
     book.add_order(sell_order);
@@ -474,15 +473,15 @@ async fn test_depth_snapshot_matches_rest() {
         let buy_order = exchange_sim::domain::Order::new_limit(
             sym.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(49000) + rust_decimal::Decimal::from(i * 100)),
+            Quantity::from_int(1),
+            Price::from_int(49000 + i * 100),
             TimeInForce::Gtc,
         );
         let sell_order = exchange_sim::domain::Order::new_limit(
             sym.clone(),
             Side::Sell,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(51000) + rust_decimal::Decimal::from(i * 100)),
+            Quantity::from_int(1),
+            Price::from_int(51000 + i * 100),
             TimeInForce::Gtc,
         );
         book.add_order(buy_order);
@@ -534,8 +533,8 @@ async fn test_depth_update_sequence_sync() {
         .json(&json!({
             "owner_id": "seq_trader",
             "deposits": [
-                { "asset": "USDT", "amount": "100000" },
-                { "asset": "BTC", "amount": "10" }
+                { "asset": "USDT", "amount": 100000.0 },
+                { "asset": "BTC", "amount": 10.0 }
             ]
         }))
         .send()

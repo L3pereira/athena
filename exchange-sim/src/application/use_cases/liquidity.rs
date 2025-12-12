@@ -6,10 +6,9 @@ use crate::application::ports::{
     AccountRepository, EventPublisher, LpPositionReader, LpPositionWriter, PoolReader, PoolWriter,
 };
 use crate::domain::{
-    AddLiquidityResult, Clock, ExchangeEvent, LiquidityPool, LpPosition, PoolError, PoolId,
-    RemoveLiquidityResult,
+    AddLiquidityResult, Clock, ExchangeEvent, LiquidityPool, LpPosition, PRICE_SCALE, PoolError,
+    PoolId, RemoveLiquidityResult, Value,
 };
-use rust_decimal::Decimal;
 use std::sync::Arc;
 
 /// Command to add liquidity to a pool
@@ -20,11 +19,11 @@ pub struct AddLiquidityCommand {
     /// Second token
     pub token_b: String,
     /// Amount of token_a to add
-    pub amount_a: Decimal,
+    pub amount_a: Value,
     /// Amount of token_b to add
-    pub amount_b: Decimal,
+    pub amount_b: Value,
     /// Minimum LP tokens to receive (slippage protection)
-    pub min_lp_tokens: Decimal,
+    pub min_lp_tokens: Value,
 }
 
 /// Command to remove liquidity from a pool
@@ -33,11 +32,11 @@ pub struct RemoveLiquidityCommand {
     /// Pool to remove from
     pub pool_id: PoolId,
     /// Amount of LP tokens to burn
-    pub lp_tokens: Decimal,
+    pub lp_tokens: Value,
     /// Minimum token_a to receive
-    pub min_amount_a: Decimal,
+    pub min_amount_a: Value,
     /// Minimum token_b to receive
-    pub min_amount_b: Decimal,
+    pub min_amount_b: Value,
 }
 
 /// Result of adding liquidity
@@ -53,7 +52,7 @@ pub struct AddLiquidityExecutionResult {
 pub struct RemoveLiquidityExecutionResult {
     pub pool_id: PoolId,
     pub result: RemoveLiquidityResult,
-    pub remaining_lp_tokens: Decimal,
+    pub remaining_lp_tokens: Value,
 }
 
 /// Use case for managing liquidity
@@ -108,14 +107,14 @@ where
         let balance_a = account.balance(&command.token_a);
         let balance_b = account.balance(&command.token_b);
 
-        if balance_a.available < command.amount_a {
+        if balance_a.available.raw() < command.amount_a.raw() {
             return Err(LiquidityUseCaseError::InsufficientBalance {
                 asset: command.token_a.clone(),
                 available: balance_a.available,
                 requested: command.amount_a,
             });
         }
-        if balance_b.available < command.amount_b {
+        if balance_b.available.raw() < command.amount_b.raw() {
             return Err(LiquidityUseCaseError::InsufficientBalance {
                 asset: command.token_b.clone(),
                 available: balance_b.available,
@@ -137,11 +136,12 @@ where
             (command.amount_b, command.amount_a)
         };
 
-        // Calculate price ratio for IL tracking
-        let entry_price_ratio = if pool.has_liquidity() {
-            pool.reserve_b / pool.reserve_a
+        // Calculate price ratio for IL tracking (as raw i128 scaled by PRICE_SCALE)
+        let entry_price_ratio_raw = if pool.has_liquidity() {
+            // reserve_b / reserve_a as scaled integer
+            pool.reserve_b.raw() * PRICE_SCALE as i128 / pool.reserve_a.raw()
         } else {
-            amount_b / amount_a
+            amount_b.raw() * PRICE_SCALE as i128 / amount_a.raw()
         };
 
         // Add liquidity
@@ -171,10 +171,10 @@ where
             .get_position(&pool.id, &account.id)
             .await
             .unwrap_or_else(|| {
-                LpPosition::new(pool.id, account.id, Decimal::ZERO, entry_price_ratio)
+                LpPosition::new(pool.id, account.id, Value::ZERO, entry_price_ratio_raw)
             });
 
-        position.lp_tokens += result.lp_tokens;
+        position.lp_tokens = Value::from_raw(position.lp_tokens.raw() + result.lp_tokens.raw());
 
         // Save everything
         let pool_id = pool.id;
@@ -190,7 +190,7 @@ where
             amount_a_added: result.amount_a_used,
             amount_b_added: result.amount_b_used,
             lp_tokens_minted: result.lp_tokens,
-            share_of_pool: result.share_of_pool,
+            share_of_pool_bps: result.share_of_pool_bps,
             timestamp: self.clock.now_millis(),
         };
         self.event_publisher
@@ -226,7 +226,7 @@ where
 
         // Check LP token balance
         let lp_balance = account.balance(&pool.lp_token_symbol);
-        if lp_balance.available < command.lp_tokens {
+        if lp_balance.available.raw() < command.lp_tokens.raw() {
             return Err(LiquidityUseCaseError::InsufficientLpTokens {
                 available: lp_balance.available,
                 requested: command.lp_tokens,
@@ -259,7 +259,7 @@ where
         account.deposit(&pool.token_b, result.amount_b);
 
         // Update position
-        position.lp_tokens -= command.lp_tokens;
+        position.lp_tokens = Value::from_raw(position.lp_tokens.raw() - command.lp_tokens.raw());
         let remaining_lp_tokens = position.lp_tokens;
 
         // Save everything
@@ -268,7 +268,7 @@ where
         let token_b = pool.token_b.clone();
 
         self.pool_repo.save(pool).await;
-        if position.lp_tokens > Decimal::ZERO {
+        if position.lp_tokens.raw() > 0 {
             self.pool_repo.save_position(position).await;
         } else {
             self.pool_repo.delete_position(&pool_id, &account.id).await;
@@ -315,12 +315,12 @@ where
         Ok(self.pool_repo.get_positions_by_account(&account.id).await)
     }
 
-    /// Calculate impermanent loss for a position
+    /// Calculate impermanent loss for a position (returns bps)
     pub async fn calculate_impermanent_loss(
         &self,
         client_id: &str,
         pool_id: &PoolId,
-    ) -> Result<Decimal, LiquidityUseCaseError> {
+    ) -> Result<i64, LiquidityUseCaseError> {
         let account = self
             .account_repo
             .get_by_owner(client_id)
@@ -339,9 +339,11 @@ where
             .await
             .ok_or(LiquidityUseCaseError::NoPosition)?;
 
-        let current_ratio = pool.reserve_b / pool.reserve_a;
-        let il =
-            LiquidityPool::calculate_impermanent_loss(position.entry_price_ratio, current_ratio);
+        let current_ratio_raw = pool.reserve_b.raw() * PRICE_SCALE as i128 / pool.reserve_a.raw();
+        let il = LiquidityPool::calculate_impermanent_loss(
+            position.entry_price_ratio_raw,
+            current_ratio_raw,
+        );
 
         Ok(il)
     }
@@ -353,10 +355,10 @@ pub struct LiquidityAddedEvent {
     pub pool_id: PoolId,
     pub token_a: String,
     pub token_b: String,
-    pub amount_a_added: Decimal,
-    pub amount_b_added: Decimal,
-    pub lp_tokens_minted: Decimal,
-    pub share_of_pool: Decimal,
+    pub amount_a_added: Value,
+    pub amount_b_added: Value,
+    pub lp_tokens_minted: Value,
+    pub share_of_pool_bps: i64,
     pub timestamp: i64,
 }
 
@@ -366,9 +368,9 @@ pub struct LiquidityRemovedEvent {
     pub pool_id: PoolId,
     pub token_a: String,
     pub token_b: String,
-    pub amount_a_received: Decimal,
-    pub amount_b_received: Decimal,
-    pub lp_tokens_burned: Decimal,
+    pub amount_a_received: Value,
+    pub amount_b_received: Value,
+    pub lp_tokens_burned: Value,
     pub timestamp: i64,
 }
 
@@ -380,12 +382,12 @@ pub enum LiquidityUseCaseError {
     NoPosition,
     InsufficientBalance {
         asset: String,
-        available: Decimal,
-        requested: Decimal,
+        available: Value,
+        requested: Value,
     },
     InsufficientLpTokens {
-        available: Decimal,
-        requested: Decimal,
+        available: Value,
+        requested: Value,
     },
     PoolError(PoolError),
     AccountError(String),
@@ -405,7 +407,9 @@ impl std::fmt::Display for LiquidityUseCaseError {
                 write!(
                     f,
                     "Insufficient {} balance: {} available, {} requested",
-                    asset, available, requested
+                    asset,
+                    available.to_f64(),
+                    requested.to_f64()
                 )
             }
             LiquidityUseCaseError::InsufficientLpTokens {
@@ -415,7 +419,8 @@ impl std::fmt::Display for LiquidityUseCaseError {
                 write!(
                     f,
                     "Insufficient LP tokens: {} available, {} requested",
-                    available, requested
+                    available.to_f64(),
+                    requested.to_f64()
                 )
             }
             LiquidityUseCaseError::PoolError(e) => write!(f, "Pool error: {}", e),

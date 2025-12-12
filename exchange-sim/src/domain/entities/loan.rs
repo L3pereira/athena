@@ -1,10 +1,11 @@
 //! Loan entity for borrowed assets (margin/short selling).
 
-use crate::domain::value_objects::Timestamp;
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
+use crate::domain::value_objects::{Rate, Timestamp, Value};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Milliseconds per year (365 * 24 * 60 * 60 * 1000)
+const MS_PER_YEAR: i128 = 31_536_000_000;
 
 /// A loan for borrowed assets (for short selling)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,13 +14,13 @@ pub struct Loan {
     /// Asset being borrowed (e.g., "BTC")
     pub asset: String,
     /// Amount borrowed
-    pub principal: Decimal,
-    /// Interest rate (annual, e.g., 0.05 = 5%)
-    pub interest_rate: Decimal,
+    pub principal: Value,
+    /// Interest rate (annual, in basis points - e.g., 500 = 5%)
+    pub interest_rate: Rate,
     /// Accrued interest
-    pub accrued_interest: Decimal,
+    pub accrued_interest: Value,
     /// Collateral locked (in quote currency, e.g., USDT)
-    pub collateral: Decimal,
+    pub collateral: Value,
     /// When the loan was created
     pub created_at: Timestamp,
     /// Last interest accrual
@@ -29,9 +30,9 @@ pub struct Loan {
 impl Loan {
     pub fn new(
         asset: impl Into<String>,
-        principal: Decimal,
-        interest_rate: Decimal,
-        collateral: Decimal,
+        principal: Value,
+        interest_rate: Rate,
+        collateral: Value,
         now: Timestamp,
     ) -> Self {
         Self {
@@ -39,7 +40,7 @@ impl Loan {
             asset: asset.into(),
             principal,
             interest_rate,
-            accrued_interest: Decimal::ZERO,
+            accrued_interest: Value::ZERO,
             collateral,
             created_at: now,
             last_accrual: now,
@@ -47,7 +48,7 @@ impl Loan {
     }
 
     /// Total amount owed (principal + interest)
-    pub fn total_owed(&self) -> Decimal {
+    pub fn total_owed(&self) -> Value {
         self.principal + self.accrued_interest
     }
 
@@ -58,33 +59,35 @@ impl Loan {
             return;
         }
 
-        // Convert annual rate to per-millisecond rate
-        let ms_per_year = dec!(31_536_000_000); // 365 * 24 * 60 * 60 * 1000
-        let rate_per_ms = self.interest_rate / ms_per_year;
+        // Interest = principal * rate * elapsed_time / year
+        // rate is in bps (10000 = 100%), so: principal * rate / 10000 * elapsed_ms / ms_per_year
+        // = principal * rate * elapsed_ms / (10000 * ms_per_year)
+        let interest_raw =
+            (self.principal.raw() * self.interest_rate.bps() as i128 * elapsed_ms as i128)
+                / (10_000 * MS_PER_YEAR);
 
-        let interest = self.principal * rate_per_ms * Decimal::from(elapsed_ms);
-        self.accrued_interest += interest;
+        self.accrued_interest = Value::from_raw(self.accrued_interest.raw() + interest_raw);
         self.last_accrual = now;
     }
 
     /// Repay part of the loan, returns remaining principal
-    pub fn repay(&mut self, amount: Decimal) -> Decimal {
+    pub fn repay(&mut self, amount: Value) -> Value {
         // First pay off interest
-        if amount <= self.accrued_interest {
-            self.accrued_interest -= amount;
+        if amount.raw() <= self.accrued_interest.raw() {
+            self.accrued_interest = Value::from_raw(self.accrued_interest.raw() - amount.raw());
             return self.principal;
         }
 
-        let after_interest = amount - self.accrued_interest;
-        self.accrued_interest = Decimal::ZERO;
+        let after_interest = amount.raw() - self.accrued_interest.raw();
+        self.accrued_interest = Value::ZERO;
 
         // Then pay off principal
-        self.principal = (self.principal - after_interest).max(Decimal::ZERO);
+        self.principal = Value::from_raw((self.principal.raw() - after_interest).max(0));
         self.principal
     }
 
     /// Check if loan is fully repaid
     pub fn is_repaid(&self) -> bool {
-        self.principal.is_zero() && self.accrued_interest.is_zero()
+        self.principal.raw() == 0 && self.accrued_interest.raw() == 0
     }
 }

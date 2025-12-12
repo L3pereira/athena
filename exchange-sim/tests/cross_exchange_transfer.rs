@@ -14,10 +14,9 @@ use exchange_sim::{
     ConfirmWithdrawalCommand, ControllableClock, Custodian, CustodianType, CustodianWriter,
     InMemoryDepositAddressRegistry, InMemoryProcessedDepositTracker, Network,
     ProcessDepositUseCase, ProcessWithdrawalCommand, ProcessWithdrawalUseCase,
-    RequestWithdrawalCommand, RequestWithdrawalUseCase, SimulationClock, WithdrawalConfig,
+    RequestWithdrawalCommand, RequestWithdrawalUseCase, SimulationClock, Value, WithdrawalConfig,
     WithdrawalReader, WithdrawalStatus,
 };
-use rust_decimal_macros::dec;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -43,23 +42,13 @@ impl ExchangeContext {
         }
     }
 
-    async fn setup_account_with_balance(
-        &self,
-        owner: &str,
-        asset: &str,
-        amount: rust_decimal::Decimal,
-    ) {
+    async fn setup_account_with_balance(&self, owner: &str, asset: &str, amount: Value) {
         let mut account = self.account_repo.get_or_create(owner).await;
         account.deposit(asset, amount);
         self.account_repo.save(account).await;
     }
 
-    async fn setup_withdrawal_custodian(
-        &self,
-        network: Network,
-        asset: &str,
-        fee: rust_decimal::Decimal,
-    ) {
+    async fn setup_withdrawal_custodian(&self, network: Network, asset: &str, fee: Value) {
         let mut custodian = Custodian::new(
             format!("{} Hot Wallet", self.name),
             CustodianType::HotWallet,
@@ -68,13 +57,13 @@ impl ExchangeContext {
 
         let config = WithdrawalConfig::new(asset, network)
             .with_fee(fee)
-            .with_min_amount(dec!(0.001)) // Low minimum for testing
-            .with_max_amount(dec!(100000))
+            .with_min_amount(Value::from_f64(0.001)) // Low minimum for testing
+            .with_max_amount(Value::from_int(100000))
             .with_confirmations(12) // Ethereum confirmations
             .with_processing_time(30);
 
         custodian = custodian.with_withdrawal_config(config);
-        custodian.deposit(asset, dec!(1000000)); // Hot wallet balance
+        custodian.deposit(asset, Value::from_int(1000000)); // Hot wallet balance
 
         self.custodian_repo.save(custodian).await;
     }
@@ -157,10 +146,10 @@ async fn test_cross_exchange_eth_transfer() {
     // Setup Exchange A (source - e.g., "Binance")
     let exchange_a = ExchangeContext::new("ExchangeA", Arc::clone(&clock));
     exchange_a
-        .setup_account_with_balance("agent_bot", "ETH", dec!(10.0))
+        .setup_account_with_balance("agent_bot", "ETH", Value::from_f64(10.0))
         .await;
     exchange_a
-        .setup_withdrawal_custodian(Network::Ethereum, "ETH", dec!(0.001))
+        .setup_withdrawal_custodian(Network::Ethereum, "ETH", Value::from_f64(0.001))
         .await;
 
     // Setup Exchange B (destination - e.g., "Coinbase")
@@ -185,7 +174,7 @@ async fn test_cross_exchange_eth_transfer() {
             "agent_bot",
             RequestWithdrawalCommand {
                 asset: "ETH".to_string(),
-                amount: dec!(5.0),
+                amount: Value::from_f64(5.0),
                 network: Network::Ethereum,
                 destination_address: deposit_address.address.clone(),
                 memo: None,
@@ -204,10 +193,11 @@ async fn test_cross_exchange_eth_transfer() {
         .await
         .unwrap();
     let balance_a = account_a.balance("ETH");
-    assert!(balance_a.locked > dec!(0), "Funds should be locked");
+    assert!(balance_a.locked.raw() > 0, "Funds should be locked");
     println!(
         "Exchange A balance - Available: {}, Locked: {}",
-        balance_a.available, balance_a.locked
+        balance_a.available.to_f64(),
+        balance_a.locked.to_f64()
     );
 
     // Step 3: Exchange A processes the withdrawal (starts processing)
@@ -228,7 +218,7 @@ async fn test_cross_exchange_eth_transfer() {
                 "exchange_a_hot_wallet",  // From Exchange A's hot wallet
                 &deposit_address.address, // To agent's deposit address on Exchange B
                 "ETH",
-                dec!(5.0),
+                Value::from_f64(5.0),
                 clock.now(),
             )
             .expect("Transaction should submit");
@@ -299,16 +289,19 @@ async fn test_cross_exchange_eth_transfer() {
     );
 
     let credited_deposit = &deposit_result.credited_deposits[0];
-    assert_eq!(credited_deposit.amount, dec!(5.0));
+    assert_eq!(credited_deposit.amount, Value::from_f64(5.0));
     assert_eq!(credited_deposit.asset, "ETH");
     assert_eq!(credited_deposit.owner_id, "agent_bot");
     println!(
         "Deposit credited: {} {} to {}",
-        credited_deposit.amount, credited_deposit.asset, credited_deposit.owner_id
+        credited_deposit.amount.to_f64(),
+        credited_deposit.asset,
+        credited_deposit.owner_id
     );
 
     // Step 7: Verify final balances
     // Exchange A: 10 ETH - 5 ETH - 0.001 fee = 4.999 ETH
+    // Use from_raw for exact comparison: 4.999 * 100_000_000 = 499_900_000
     let final_account_a = exchange_a
         .account_repo
         .get_by_owner("agent_bot")
@@ -317,13 +310,17 @@ async fn test_cross_exchange_eth_transfer() {
     let final_balance_a = final_account_a.balance("ETH");
     assert_eq!(
         final_balance_a.available,
-        dec!(4.999),
+        Value::from_raw(499_900_000),
         "Exchange A available balance"
     );
-    assert_eq!(final_balance_a.locked, dec!(0), "Exchange A locked balance");
+    assert_eq!(
+        final_balance_a.locked,
+        Value::ZERO,
+        "Exchange A locked balance"
+    );
     println!(
         "Final Exchange A balance: {} ETH",
-        final_balance_a.available
+        final_balance_a.available.to_f64()
     );
 
     // Exchange B: 0 + 5 ETH = 5 ETH
@@ -335,12 +332,12 @@ async fn test_cross_exchange_eth_transfer() {
     let final_balance_b = final_account_b.balance("ETH");
     assert_eq!(
         final_balance_b.available,
-        dec!(5.0),
+        Value::from_f64(5.0),
         "Exchange B available balance"
     );
     println!(
         "Final Exchange B balance: {} ETH",
-        final_balance_b.available
+        final_balance_b.available.to_f64()
     );
 
     println!("\n=== Cross-Exchange Transfer Complete ===");
@@ -370,7 +367,7 @@ async fn test_no_double_credit_on_cross_exchange_deposit() {
             "external_wallet",
             &deposit_address.address,
             "ETH",
-            dec!(2.5),
+            Value::from_f64(2.5),
             clock.now(),
         )
         .expect("Transaction should submit");
@@ -396,7 +393,7 @@ async fn test_no_double_credit_on_cross_exchange_deposit() {
     let account = exchange.account_repo.get_by_owner("user1").await.unwrap();
     assert_eq!(
         account.balance("ETH").available,
-        dec!(2.5),
+        Value::from_f64(2.5),
         "Should only be credited once"
     );
 }
@@ -426,7 +423,7 @@ async fn test_multiple_deposits_from_different_sources() {
             "wallet_a",
             &deposit_address.address,
             "ETH",
-            dec!(1.0),
+            Value::from_f64(1.0),
             clock.now(),
         )
         .unwrap();
@@ -437,7 +434,7 @@ async fn test_multiple_deposits_from_different_sources() {
             "wallet_b",
             &deposit_address.address,
             "ETH",
-            dec!(2.0),
+            Value::from_f64(2.0),
             clock.now(),
         )
         .unwrap();
@@ -448,7 +445,7 @@ async fn test_multiple_deposits_from_different_sources() {
             "wallet_c",
             &deposit_address.address,
             "USDT",
-            dec!(1000),
+            Value::from_int(1000),
             clock.now(),
         )
         .unwrap();
@@ -470,10 +467,14 @@ async fn test_multiple_deposits_from_different_sources() {
     let account = exchange.account_repo.get_by_owner("user1").await.unwrap();
     assert_eq!(
         account.balance("ETH").available,
-        dec!(3.0),
+        Value::from_f64(3.0),
         "ETH: 1.0 + 2.0 = 3.0"
     );
-    assert_eq!(account.balance("USDT").available, dec!(1000), "USDT: 1000");
+    assert_eq!(
+        account.balance("USDT").available,
+        Value::from_int(1000),
+        "USDT: 1000"
+    );
 }
 
 /// Test: Unregistered deposit addresses don't get credited
@@ -493,7 +494,7 @@ async fn test_deposit_to_unregistered_address_not_credited() {
             "external_wallet",
             "0xunregistered_address_1234567890abcdef", // Not a registered deposit address
             "ETH",
-            dec!(100),
+            Value::from_int(100),
             clock.now(),
         )
         .unwrap();

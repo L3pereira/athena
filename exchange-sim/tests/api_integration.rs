@@ -11,7 +11,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use exchange_sim::{
-    OrderBookReader, OrderBookWriter,
+    OrderBookReader, OrderBookWriter, Value,
     application::ports::AccountRepository,
     domain::{Price, Quantity, Side, Symbol, TimeInForce, TradingPairConfig},
     infrastructure::{
@@ -20,8 +20,7 @@ use exchange_sim::{
     },
     presentation::rest::{AppState, create_router},
 };
-use rust_decimal_macros::dec;
-use serde_json::{Value, json};
+use serde_json::{Value as JsonValue, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -72,8 +71,8 @@ async fn create_test_state_with_account(
 
     // Create and fund an account
     let mut account = state.account_repo.get_or_create(owner_id).await;
-    account.deposit("USDT", dec!(100000));
-    account.deposit("BTC", dec!(10));
+    account.deposit("USDT", Value::from_int(100000));
+    account.deposit("BTC", Value::from_int(10));
     state.account_repo.save(account).await;
 
     state
@@ -103,7 +102,7 @@ async fn test_ping_endpoint() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
     assert_eq!(json, json!({}));
 }
 
@@ -127,7 +126,7 @@ async fn test_server_time_endpoint() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
     assert!(json.get("serverTime").is_some());
 }
 
@@ -151,7 +150,7 @@ async fn test_exchange_info_endpoint() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     // Should have symbols array
     assert!(json.get("symbols").is_some());
@@ -183,7 +182,7 @@ async fn test_depth_empty_book() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["bids"].as_array().unwrap().len(), 0);
     assert_eq!(json["asks"].as_array().unwrap().len(), 0);
@@ -199,11 +198,11 @@ async fn test_depth_with_orders() {
 
     // Add buy orders
     for i in 1..=5 {
-        let price = Price::from(dec!(50000) - rust_decimal::Decimal::from(i * 100));
+        let price = Price::from_int(50000 - i * 100);
         let order = exchange_sim::domain::Order::new_limit(
             sym.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
+            Quantity::from_int(1),
             price,
             TimeInForce::Gtc,
         );
@@ -212,11 +211,11 @@ async fn test_depth_with_orders() {
 
     // Add sell orders
     for i in 1..=5 {
-        let price = Price::from(dec!(50000) + rust_decimal::Decimal::from(i * 100));
+        let price = Price::from_int(50000 + i * 100);
         let order = exchange_sim::domain::Order::new_limit(
             sym.clone(),
             Side::Sell,
-            Quantity::from(dec!(1)),
+            Quantity::from_int(1),
             price,
             TimeInForce::Gtc,
         );
@@ -242,7 +241,7 @@ async fn test_depth_with_orders() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["bids"].as_array().unwrap().len(), 5);
     assert_eq!(json["asks"].as_array().unwrap().len(), 5);
@@ -251,10 +250,12 @@ async fn test_depth_with_orders() {
     let bids = json["bids"].as_array().unwrap();
     let asks = json["asks"].as_array().unwrap();
 
-    // Best bid should be highest price
-    assert_eq!(bids[0][0].as_str().unwrap(), "49900");
+    // Best bid should be highest price (formatted as decimal string)
+    let best_bid: f64 = bids[0][0].as_str().unwrap().parse().unwrap();
+    assert_eq!(best_bid, 49900.0);
     // Best ask should be lowest price
-    assert_eq!(asks[0][0].as_str().unwrap(), "50100");
+    let best_ask: f64 = asks[0][0].as_str().unwrap().parse().unwrap();
+    assert_eq!(best_ask, 50100.0);
 }
 
 #[tokio::test]
@@ -277,7 +278,7 @@ async fn test_depth_invalid_symbol() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     assert!(json.get("code").is_some());
     assert!(json.get("msg").is_some());
@@ -319,7 +320,7 @@ async fn test_create_limit_order() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["symbol"].as_str().unwrap(), "BTCUSDT");
     assert_eq!(json["side"].as_str().unwrap(), "BUY");
@@ -338,8 +339,8 @@ async fn test_create_market_order() {
     let sell_order = exchange_sim::domain::Order::new_limit(
         sym.clone(),
         Side::Sell,
-        Quantity::from(dec!(10)),
-        Price::from(dec!(50000)),
+        Quantity::from_int(10),
+        Price::from_int(50000),
         TimeInForce::Gtc,
     );
     book.add_order(sell_order);
@@ -372,7 +373,7 @@ async fn test_create_market_order() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     // Market order should have fills
     assert_eq!(json["type"].as_str().unwrap(), "MARKET");
@@ -387,8 +388,8 @@ async fn test_order_matching() {
 
     // Also fund a second trader
     let mut account2 = state.account_repo.get_or_create("trader2").await;
-    account2.deposit("USDT", dec!(100000));
-    account2.deposit("BTC", dec!(10));
+    account2.deposit("USDT", Value::from_int(100000));
+    account2.deposit("BTC", Value::from_int(10));
     state.account_repo.save(account2).await;
 
     // Trader1 places a sell limit order
@@ -398,8 +399,8 @@ async fn test_order_matching() {
     let sell_order = exchange_sim::domain::Order::new_limit(
         sym.clone(),
         Side::Sell,
-        Quantity::from(dec!(2)),
-        Price::from(dec!(50000)),
+        Quantity::from_int(2),
+        Price::from_int(50000),
         TimeInForce::Gtc,
     );
     book.add_order(sell_order);
@@ -433,12 +434,13 @@ async fn test_order_matching() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     // Should have fills
     let fills = json["fills"].as_array().unwrap();
     assert!(!fills.is_empty());
-    assert_eq!(fills[0]["price"].as_str().unwrap(), "50000");
+    let fill_price: f64 = fills[0]["price"].as_str().unwrap().parse().unwrap();
+    assert_eq!(fill_price, 50000.0);
 }
 
 // ============================================================================
@@ -480,7 +482,7 @@ async fn test_cancel_order() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let create_json: Value = serde_json::from_slice(&body).unwrap();
+    let create_json: JsonValue = serde_json::from_slice(&body).unwrap();
     assert_eq!(create_json["status"].as_str().unwrap(), "NEW");
 
     // Now cancel the order using clientOrderId
@@ -504,7 +506,7 @@ async fn test_cancel_order() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     // Note: Cancel by clientOrderId is not fully implemented in the use case
     // For now, test expects this specific error
@@ -540,7 +542,7 @@ async fn test_cancel_nonexistent_order() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     // Should return "unknown order" error
     assert_eq!(json["code"].as_i64().unwrap(), -2013);
@@ -558,8 +560,8 @@ async fn test_create_account() {
     let request = json!({
         "owner_id": "new_trader",
         "deposits": [
-            { "asset": "USDT", "amount": "10000" },
-            { "asset": "BTC", "amount": "1" }
+            { "asset": "USDT", "amount": 10000.0 },
+            { "asset": "BTC", "amount": 1.0 }
         ],
         "fee_tier": 1
     });
@@ -581,7 +583,7 @@ async fn test_create_account() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["owner_id"].as_str().unwrap(), "new_trader");
     assert_eq!(json["fee_tier"].as_u64().unwrap(), 1);
@@ -598,8 +600,8 @@ async fn test_create_market() {
         "quote_asset": "USDT",
         "maker_fee_bps": 10,
         "taker_fee_bps": 20,
-        "tick_size": "0.01",
-        "lot_size": "0.001"
+        "tick_size": 0.01,
+        "lot_size": 0.001
     });
 
     let response = app
@@ -619,7 +621,7 @@ async fn test_create_market() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     assert_eq!(json["symbol"].as_str().unwrap(), "ETHUSDT");
     assert_eq!(json["base_asset"].as_str().unwrap(), "ETH");
@@ -651,7 +653,7 @@ async fn test_list_markets() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     let markets = json.as_array().unwrap();
     assert_eq!(markets.len(), 2);
@@ -697,7 +699,7 @@ async fn test_rate_limit_requests() {
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
-            let json: Value = serde_json::from_slice(&body).unwrap();
+            let json: JsonValue = serde_json::from_slice(&body).unwrap();
             assert_eq!(json["code"].as_i64().unwrap(), -1015);
             break;
         }
@@ -717,38 +719,26 @@ async fn test_order_book_rebuild_from_depth() {
     let mut book = state.order_book_repo.get(&sym).await.unwrap();
 
     // Add various buy orders at different prices
-    let buy_prices = [
-        dec!(49000),
-        dec!(49100),
-        dec!(49200),
-        dec!(49300),
-        dec!(49400),
-    ];
+    let buy_prices = [49000, 49100, 49200, 49300, 49400];
     for price in buy_prices {
         let order = exchange_sim::domain::Order::new_limit(
             sym.clone(),
             Side::Buy,
-            Quantity::from(dec!(2)),
-            Price::from(price),
+            Quantity::from_int(2),
+            Price::from_int(price),
             TimeInForce::Gtc,
         );
         book.add_order(order);
     }
 
     // Add various sell orders at different prices
-    let sell_prices = [
-        dec!(50000),
-        dec!(50100),
-        dec!(50200),
-        dec!(50300),
-        dec!(50400),
-    ];
+    let sell_prices = [50000, 50100, 50200, 50300, 50400];
     for price in sell_prices {
         let order = exchange_sim::domain::Order::new_limit(
             sym.clone(),
             Side::Sell,
-            Quantity::from(dec!(3)),
-            Price::from(price),
+            Quantity::from_int(3),
+            Price::from_int(price),
             TimeInForce::Gtc,
         );
         book.add_order(order);
@@ -774,7 +764,7 @@ async fn test_order_book_rebuild_from_depth() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     let bids = json["bids"].as_array().unwrap();
     let asks = json["asks"].as_array().unwrap();
@@ -827,8 +817,8 @@ async fn test_concurrent_order_submission() {
             .account_repo
             .get_or_create(&format!("trader{}", i))
             .await;
-        account.deposit("USDT", dec!(100000));
-        account.deposit("BTC", dec!(10));
+        account.deposit("USDT", Value::from_int(100000));
+        account.deposit("BTC", Value::from_int(10));
         state.account_repo.save(account).await;
     }
 
@@ -896,7 +886,7 @@ async fn test_concurrent_order_submission() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let json: JsonValue = serde_json::from_slice(&body).unwrap();
 
     let bids = json["bids"].as_array().unwrap();
     assert_eq!(

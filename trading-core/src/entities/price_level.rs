@@ -34,6 +34,6 @@ impl Eq for PriceLevel {}
 
 impl std::hash::Hash for PriceLevel {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.price.inner().hash(state);
+        self.price.raw().hash(state);
     }
 }

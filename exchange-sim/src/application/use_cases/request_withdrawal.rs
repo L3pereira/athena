@@ -6,16 +6,15 @@ use crate::application::ports::{
     AccountRepository, CustodianReader, EventPublisher, WithdrawalWriter,
 };
 use crate::domain::{
-    Clock, ExchangeEvent, Network, WithdrawalError, WithdrawalRequest, WithdrawalStatusEvent,
+    Clock, ExchangeEvent, Network, Value, WithdrawalError, WithdrawalRequest, WithdrawalStatusEvent,
 };
-use rust_decimal::Decimal;
 use std::sync::Arc;
 
 /// Command to request a withdrawal
 #[derive(Debug, Clone)]
 pub struct RequestWithdrawalCommand {
     pub asset: String,
-    pub amount: Decimal,
+    pub amount: Value,
     pub network: Network,
     pub destination_address: String,
     pub memo: Option<String>,
@@ -25,7 +24,7 @@ pub struct RequestWithdrawalCommand {
 #[derive(Debug, Clone)]
 pub struct RequestWithdrawalResult {
     pub withdrawal: WithdrawalRequest,
-    pub fee: Decimal,
+    pub fee: Value,
     pub estimated_time_secs: u64,
 }
 
@@ -108,7 +107,7 @@ where
 
         // Check account balance
         let balance = account.balance(&command.asset);
-        if balance.available < total {
+        if balance.available.raw() < total.raw() {
             return Err(WithdrawalUseCaseError::WithdrawalError(
                 WithdrawalError::InsufficientBalance {
                     available: balance.available,

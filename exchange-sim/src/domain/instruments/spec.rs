@@ -1,5 +1,4 @@
-use crate::domain::{Price, Quantity};
-use rust_decimal::Decimal;
+use crate::domain::{Price, Quantity, Rate};
 
 /// Common specification trait for all tradeable instruments
 pub trait InstrumentSpec: Send + Sync {
@@ -23,9 +22,9 @@ pub trait InstrumentSpec: Send + Sync {
         false
     }
 
-    /// Margin requirement (as decimal, e.g., 0.01 = 1%)
-    fn margin_requirement(&self) -> Decimal {
-        Decimal::ONE // 100% margin (no leverage) by default
+    /// Margin requirement (in basis points, e.g., 10000 = 100%)
+    fn margin_requirement(&self) -> Rate {
+        Rate::ONE // 100% margin (no leverage) by default
     }
 
     /// Can this instrument be shorted?
@@ -33,45 +32,48 @@ pub trait InstrumentSpec: Send + Sync {
         false
     }
 
-    /// Maximum leverage (1 / margin_requirement)
-    fn max_leverage(&self) -> Decimal {
-        if self.margin_requirement().is_zero() {
-            return Decimal::ONE;
+    /// Maximum leverage (10000 / margin_bps)
+    fn max_leverage(&self) -> i64 {
+        let margin_bps = self.margin_requirement().bps();
+        if margin_bps == 0 {
+            return 1;
         }
-        Decimal::ONE / self.margin_requirement()
+        10000 / margin_bps
     }
 
     /// Validate price against tick size
     fn validate_price(&self, price: Price) -> bool {
-        if self.tick_size().is_zero() {
+        if self.tick_size().raw() == 0 {
             return true;
         }
-        (price.inner() % self.tick_size().inner()).is_zero()
+        (price.raw() % self.tick_size().raw()) == 0
     }
 
     /// Validate quantity against lot size
     fn validate_quantity(&self, quantity: Quantity) -> bool {
-        if self.lot_size().is_zero() {
+        if self.lot_size().raw() == 0 {
             return true;
         }
-        (quantity.inner() % self.lot_size().inner()).is_zero()
+        (quantity.raw() % self.lot_size().raw()) == 0
     }
 
     /// Round price to nearest valid tick
     fn round_price(&self, price: Price) -> Price {
-        if self.tick_size().is_zero() {
+        if self.tick_size().raw() == 0 {
             return price;
         }
-        let ticks = (price.inner() / self.tick_size().inner()).round();
-        Price::from(ticks * self.tick_size().inner())
+        let tick = self.tick_size().raw();
+        let ticks = price.raw() / tick;
+        Price::from_raw(ticks * tick)
     }
 
     /// Round quantity to nearest valid lot
     fn round_quantity(&self, quantity: Quantity) -> Quantity {
-        if self.lot_size().is_zero() {
+        if self.lot_size().raw() == 0 {
             return quantity;
         }
-        let lots = (quantity.inner() / self.lot_size().inner()).floor();
-        Quantity::from(lots * self.lot_size().inner())
+        let lot = self.lot_size().raw();
+        let lots = quantity.raw() / lot;
+        Quantity::from_raw(lots * lot)
     }
 }

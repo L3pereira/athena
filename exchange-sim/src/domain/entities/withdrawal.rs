@@ -8,7 +8,7 @@
 //! 5. Failed - Failed for some reason
 //! 6. Cancelled - Cancelled by user or admin
 
-use rust_decimal::Decimal;
+use crate::domain::value_objects::Value;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -79,9 +79,9 @@ pub struct WithdrawalRequest {
     /// Asset being withdrawn
     pub asset: String,
     /// Amount being withdrawn (excluding fee)
-    pub amount: Decimal,
+    pub amount: Value,
     /// Withdrawal fee
-    pub fee: Decimal,
+    pub fee: Value,
     /// Network for withdrawal
     pub network: Network,
     /// Destination address
@@ -113,8 +113,8 @@ impl WithdrawalRequest {
     pub fn new(
         account_id: AccountId,
         asset: impl Into<String>,
-        amount: Decimal,
-        fee: Decimal,
+        amount: Value,
+        fee: Value,
         network: Network,
         destination_address: impl Into<String>,
     ) -> Self {
@@ -156,8 +156,8 @@ impl WithdrawalRequest {
     }
 
     /// Total amount deducted from account (amount + fee)
-    pub fn total_amount(&self) -> Decimal {
-        self.amount + self.fee
+    pub fn total_amount(&self) -> Value {
+        Value::from_raw(self.amount.raw() + self.fee.raw())
     }
 
     /// Check if the withdrawal is in a terminal state
@@ -245,7 +245,7 @@ pub struct WithdrawalStatusEvent {
     pub withdrawal_id: WithdrawalId,
     pub account_id: AccountId,
     pub asset: String,
-    pub amount: Decimal,
+    pub amount: Value,
     pub status: WithdrawalStatus,
     pub tx_hash: Option<String>,
     pub timestamp: i64,
@@ -268,15 +268,14 @@ impl WithdrawalStatusEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
     use uuid::Uuid;
 
     fn make_withdrawal() -> WithdrawalRequest {
         WithdrawalRequest::new(
             Uuid::new_v4(),
             "USDT",
-            dec!(100),
-            dec!(5),
+            Value::from_int(100),
+            Value::from_int(5),
             Network::Ethereum,
             "0x1234567890abcdef1234567890abcdef12345678",
         )
@@ -286,7 +285,7 @@ mod tests {
     fn test_withdrawal_lifecycle() {
         let mut withdrawal = make_withdrawal();
         assert_eq!(withdrawal.status, WithdrawalStatus::Pending);
-        assert_eq!(withdrawal.total_amount(), dec!(105));
+        assert_eq!(withdrawal.total_amount(), Value::from_int(105));
 
         // Start processing
         let custodian_id = CustodianId::new();

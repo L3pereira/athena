@@ -2,7 +2,6 @@ use crate::domain::entities::{Order, PriceLevel, Trade};
 use crate::domain::matching::{MatchingAlgorithm, PriceTimeMatcher};
 use crate::domain::value_objects::{OrderId, Price, Quantity, Side, Symbol, Timestamp};
 use indexmap::IndexMap;
-use rust_decimal::Decimal;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
@@ -45,21 +44,21 @@ impl std::fmt::Debug for OrderBook {
 /// For asks: natural order (ascending)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PriceKey {
-    price: Decimal,
+    price: i64,
     is_bid: bool,
 }
 
 impl PriceKey {
     fn bid(price: Price) -> Self {
         PriceKey {
-            price: price.inner(),
+            price: price.raw(),
             is_bid: true,
         }
     }
 
     fn ask(price: Price) -> Self {
         PriceKey {
-            price: price.inner(),
+            price: price.raw(),
             is_bid: false,
         }
     }
@@ -125,22 +124,22 @@ impl OrderBook {
     pub fn best_bid(&self) -> Option<Price> {
         self.bids
             .first_key_value()
-            .map(|(k, _)| Price::from(k.price))
+            .map(|(k, _)| Price::from_raw(k.price))
     }
 
     /// Best ask price (lowest sell order)
     pub fn best_ask(&self) -> Option<Price> {
         self.asks
             .first_key_value()
-            .map(|(k, _)| Price::from(k.price))
+            .map(|(k, _)| Price::from_raw(k.price))
     }
 
     /// Mid price between best bid and ask
     pub fn mid_price(&self) -> Option<Price> {
         match (self.best_bid(), self.best_ask()) {
             (Some(bid), Some(ask)) => {
-                let mid = (bid.inner() + ask.inner()) / Decimal::TWO;
-                Some(Price::from(mid))
+                let mid = (bid.raw() + ask.raw()) / 2;
+                Some(Price::from_raw(mid))
             }
             _ => None,
         }
@@ -295,7 +294,7 @@ impl OrderBook {
             return Vec::new();
         };
         let ask_key = *ask_key;
-        let ask_price = Price::from(ask_key.price);
+        let ask_price = Price::from_raw(ask_key.price);
 
         // Check if order can match (for limit orders, check price)
         if let Some(limit_price) = order_price
@@ -350,7 +349,7 @@ impl OrderBook {
             return Vec::new();
         };
         let bid_key = *bid_key;
-        let bid_price = Price::from(bid_key.price);
+        let bid_price = Price::from_raw(bid_key.price);
 
         // Check if order can match (for limit orders, check price)
         if let Some(limit_price) = order_price
@@ -461,7 +460,6 @@ mod tests {
     use super::*;
     use crate::domain::matching::ProRataMatcher;
     use crate::domain::value_objects::TimeInForce;
-    use rust_decimal_macros::dec;
 
     fn create_symbol() -> Symbol {
         Symbol::new("BTCUSDT").unwrap()
@@ -473,8 +471,8 @@ mod tests {
         let order = Order::new_limit(
             create_symbol(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
         let order_id = order.id;
@@ -483,7 +481,7 @@ mod tests {
 
         assert_eq!(book.order_count(), 1);
         assert!(book.get_order(order_id).is_some());
-        assert_eq!(book.best_bid(), Some(Price::from(dec!(100))));
+        assert_eq!(book.best_bid(), Some(Price::from_int(100)));
     }
 
     #[test]
@@ -494,8 +492,8 @@ mod tests {
         let sell_order = Order::new_limit(
             create_symbol(),
             Side::Sell,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
         book.add_order(sell_order);
@@ -504,8 +502,8 @@ mod tests {
         let buy_order = Order::new_limit(
             create_symbol(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
 
@@ -525,8 +523,8 @@ mod tests {
         let sell1 = Order::new_limit(
             create_symbol(),
             Side::Sell,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
         let sell1_id = sell1.id;
@@ -534,8 +532,8 @@ mod tests {
         let sell2 = Order::new_limit(
             create_symbol(),
             Side::Sell,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
 
@@ -546,8 +544,8 @@ mod tests {
         let buy = Order::new_limit(
             create_symbol(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
 
@@ -569,16 +567,16 @@ mod tests {
         let sell1 = Order::new_limit(
             create_symbol(),
             Side::Sell,
-            Quantity::from(dec!(30)),
-            Price::from(dec!(100)),
+            Quantity::from_int(30),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
 
         let sell2 = Order::new_limit(
             create_symbol(),
             Side::Sell,
-            Quantity::from(dec!(70)),
-            Price::from(dec!(100)),
+            Quantity::from_int(70),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
 
@@ -589,8 +587,8 @@ mod tests {
         let buy = Order::new_limit(
             create_symbol(),
             Side::Buy,
-            Quantity::from(dec!(10)),
-            Price::from(dec!(100)),
+            Quantity::from_int(10),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
 
@@ -599,8 +597,8 @@ mod tests {
 
         // Pro-rata: 30% of 10 = 3, 70% of 10 = 7
         assert_eq!(trades.len(), 2);
-        assert_eq!(trades[0].quantity, Quantity::from(dec!(3)));
-        assert_eq!(trades[1].quantity, Quantity::from(dec!(7)));
+        assert_eq!(trades[0].quantity, Quantity::from_int(3));
+        assert_eq!(trades[1].quantity, Quantity::from_int(7));
         assert!(remaining.is_none());
 
         // Both orders should have remaining quantity

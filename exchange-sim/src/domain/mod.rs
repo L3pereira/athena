@@ -33,7 +33,8 @@ pub use services::{
 
 // Re-export value objects
 pub use value_objects::{
-    OrderId, OrderType, Price, Quantity, Side, Symbol, TimeInForce, Timestamp, TradeId,
+    BPS_SCALE, OrderId, OrderType, PRICE_SCALE, Price, QUANTITY_SCALE, Quantity, Rate, Side,
+    Symbol, TimeInForce, Timestamp, TradeId, Value,
 };
 
 // Re-export matching algorithms

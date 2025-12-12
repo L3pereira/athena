@@ -1,5 +1,4 @@
-use crate::domain::Order;
-use rust_decimal::Decimal;
+use crate::domain::{Order, Price, Quantity, Value};
 use serde::{Deserialize, Serialize};
 
 /// Request to create a new order (Binance-compatible)
@@ -82,15 +81,16 @@ impl OrderResponse {
     }
 
     /// Calculate the cumulative quote quantity from fills (price * qty sum)
-    fn calculate_cumulative_quote_qty(fills: &[FillResponse]) -> Decimal {
-        fills
+    fn calculate_cumulative_quote_qty(fills: &[FillResponse]) -> Value {
+        let total: i128 = fills
             .iter()
             .map(|f| {
-                let price = f.price.parse::<Decimal>().unwrap_or(Decimal::ZERO);
-                let qty = f.qty.parse::<Decimal>().unwrap_or(Decimal::ZERO);
-                price * qty
+                let price = Price::parse(&f.price).unwrap_or(Price::ZERO);
+                let qty = Quantity::parse(&f.qty).unwrap_or(Quantity::ZERO);
+                price.mul_qty(qty).raw()
             })
-            .sum()
+            .sum();
+        Value::from_raw(total)
     }
 }
 

@@ -10,10 +10,8 @@
 use exchange_sim::{
     AccountRepository, Clock, ControllableClock, ExchangeConfig, FeeSchedule, Order,
     OrderBookReader, OrderBookWriter, Price, Quantity, Side, Symbol, TimeInForce,
-    TradingPairConfig,
+    TradingPairConfig, Value,
 };
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 
 /// Helper to create the exchange with custom setup
 async fn setup_exchange() -> exchange_sim::Exchange<exchange_sim::SimulationClock> {
@@ -28,8 +26,8 @@ async fn test_market_maker_receives_rebate() {
     // Setup: Create market maker account with rebate schedule
     {
         let mut mm_account = exchange.account_repo.get_or_create("market_maker_1").await;
-        mm_account.deposit("USDT", dec!(1_000_000)); // $1M capital
-        mm_account.deposit("BTC", dec!(100)); // 100 BTC
+        mm_account.deposit("USDT", Value::from_int(1_000_000)); // $1M capital
+        mm_account.deposit("BTC", Value::from_int(100)); // 100 BTC
         mm_account.fee_schedule = FeeSchedule::market_maker(); // Tier 9: negative maker fee (rebate)
         exchange.account_repo.save(mm_account).await;
     }
@@ -37,7 +35,7 @@ async fn test_market_maker_receives_rebate() {
     // Setup: Create retail trader account
     {
         let mut retail = exchange.account_repo.get_or_create("retail_trader_1").await;
-        retail.deposit("USDT", dec!(10_000)); // $10k capital
+        retail.deposit("USDT", Value::from_int(10_000)); // $10k capital
         retail.fee_schedule = FeeSchedule::default(); // Standard fees
         exchange.account_repo.save(retail).await;
     }
@@ -51,8 +49,8 @@ async fn test_market_maker_receives_rebate() {
         let mm_order = Order::new_limit(
             symbol.clone(),
             Side::Sell,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(50000)),
+            Quantity::from_int(1),
+            Price::from_int(50000),
             TimeInForce::Gtc,
         );
         book.add_order(mm_order);
@@ -65,15 +63,21 @@ async fn test_market_maker_receives_rebate() {
         .get_by_owner("market_maker_1")
         .await
         .unwrap();
-    assert_eq!(mm_account.balance("USDT").available, dec!(1_000_000));
-    assert_eq!(mm_account.balance("BTC").available, dec!(100));
+    assert_eq!(
+        mm_account.balance("USDT").available,
+        Value::from_int(1_000_000)
+    );
+    assert_eq!(mm_account.balance("BTC").available, Value::from_int(100));
 
     let retail_account = exchange
         .account_repo
         .get_by_owner("retail_trader_1")
         .await
         .unwrap();
-    assert_eq!(retail_account.balance("USDT").available, dec!(10_000));
+    assert_eq!(
+        retail_account.balance("USDT").available,
+        Value::from_int(10_000)
+    );
 }
 
 #[tokio::test]
@@ -83,9 +87,9 @@ async fn test_create_custom_market() {
     // Create a custom market with specific fees
     let symbol = Symbol::new("ETHBTC").unwrap();
     let config = TradingPairConfig::new(symbol.clone(), "ETH", "BTC")
-        .with_fees(dec!(-0.0002), dec!(0.0004)) // -2 bps maker (rebate), 4 bps taker
-        .with_tick_size(Price::from(dec!(0.00001)))
-        .with_lot_size(Quantity::from(dec!(0.001)));
+        .with_fees_bps(-2, 4) // -2 bps maker (rebate), 4 bps taker
+        .with_tick_size(Price::from_f64(0.00001))
+        .with_lot_size(Quantity::from_f64(0.001));
 
     exchange.instrument_repo.add(config);
 
@@ -93,8 +97,8 @@ async fn test_create_custom_market() {
     let retrieved = exchange.instrument_repo.get(&symbol);
     assert!(retrieved.is_some());
     let retrieved = retrieved.unwrap();
-    assert_eq!(retrieved.maker_fee_rate, dec!(-0.0002));
-    assert_eq!(retrieved.taker_fee_rate, dec!(0.0004));
+    assert_eq!(retrieved.maker_fee_bps, -2);
+    assert_eq!(retrieved.taker_fee_bps, 4);
 }
 
 #[tokio::test]
@@ -112,7 +116,7 @@ async fn test_fee_tiers() {
 
     for (owner, schedule) in &tiers {
         let mut account = exchange.account_repo.get_or_create(owner).await;
-        account.deposit("USDT", dec!(100_000));
+        account.deposit("USDT", Value::from_int(100_000));
         account.fee_schedule = *schedule;
         exchange.account_repo.save(account).await;
     }
@@ -122,8 +126,8 @@ async fn test_fee_tiers() {
         let account = exchange.account_repo.get_by_owner(owner).await.unwrap();
         assert_eq!(account.fee_schedule.tier, expected_schedule.tier);
         assert_eq!(
-            account.fee_schedule.maker_discount,
-            expected_schedule.maker_discount
+            account.fee_schedule.maker_discount_bps,
+            expected_schedule.maker_discount_bps
         );
     }
 }
@@ -137,8 +141,8 @@ async fn test_order_book_depth() {
     for i in 1..=3 {
         let owner = format!("mm_{}", i);
         let mut account = exchange.account_repo.get_or_create(&owner).await;
-        account.deposit("USDT", dec!(1_000_000));
-        account.deposit("BTC", dec!(100));
+        account.deposit("USDT", Value::from_int(1_000_000));
+        account.deposit("BTC", Value::from_int(100));
         account.fee_schedule = FeeSchedule::market_maker();
         exchange.account_repo.save(account).await;
     }
@@ -148,34 +152,26 @@ async fn test_order_book_depth() {
         let mut book = exchange.order_book_repo.get_or_create(&symbol).await;
 
         // Bids (buy orders)
-        let bid_levels = [
-            (Decimal::new(49900, 0), Decimal::new(2, 0)),
-            (Decimal::new(49800, 0), Decimal::new(5, 0)),
-            (Decimal::new(49700, 0), Decimal::new(10, 0)),
-        ];
+        let bid_levels: [(i64, i64); 3] = [(49900, 2), (49800, 5), (49700, 10)];
         for (price, qty) in bid_levels {
             let order = Order::new_limit(
                 symbol.clone(),
                 Side::Buy,
-                Quantity::from(qty),
-                Price::from(price),
+                Quantity::from_int(qty),
+                Price::from_int(price),
                 TimeInForce::Gtc,
             );
             book.add_order(order);
         }
 
         // Asks (sell orders)
-        let ask_levels = [
-            (Decimal::new(50100, 0), Decimal::new(2, 0)),
-            (Decimal::new(50200, 0), Decimal::new(5, 0)),
-            (Decimal::new(50300, 0), Decimal::new(10, 0)),
-        ];
+        let ask_levels: [(i64, i64); 3] = [(50100, 2), (50200, 5), (50300, 10)];
         for (price, qty) in ask_levels {
             let order = Order::new_limit(
                 symbol.clone(),
                 Side::Sell,
-                Quantity::from(qty),
-                Price::from(price),
+                Quantity::from_int(qty),
+                Price::from_int(price),
                 TimeInForce::Gtc,
             );
             book.add_order(order);
@@ -192,8 +188,8 @@ async fn test_order_book_depth() {
     assert_eq!(snapshot.asks.len(), 3);
 
     // Best bid should be 49900, best ask should be 50100
-    assert_eq!(snapshot.bids[0].price, Price::from(dec!(49900)));
-    assert_eq!(snapshot.asks[0].price, Price::from(dec!(50100)));
+    assert_eq!(snapshot.bids[0].price, Price::from_int(49900));
+    assert_eq!(snapshot.asks[0].price, Price::from_int(50100));
 }
 
 #[tokio::test]

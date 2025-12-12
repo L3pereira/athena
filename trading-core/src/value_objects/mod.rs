@@ -6,8 +6,8 @@ mod symbol;
 mod time_in_force;
 
 pub use order_type::OrderType;
-pub use price::Price;
-pub use quantity::Quantity;
+pub use price::{PRICE_DECIMALS, PRICE_SCALE, Price, Value};
+pub use quantity::{QUANTITY_DECIMALS, QUANTITY_SCALE, Quantity};
 pub use side::Side;
 pub use symbol::Symbol;
 pub use time_in_force::TimeInForce;

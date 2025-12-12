@@ -247,12 +247,11 @@ where
 mod tests {
     use super::*;
     use crate::domain::value_objects::*;
-    use rust_decimal_macros::dec;
 
     fn create_config() -> TradingPairConfig {
         TradingPairConfig::new(Symbol::new("BTCUSDT").unwrap(), "BTC", "USDT")
-            .with_tick_size(Price::from(dec!(0.01)))
-            .with_lot_size(Quantity::from(dec!(0.001)))
+            .with_tick_size(Price::from_f64(0.01))
+            .with_lot_size(Quantity::from_f64(0.001))
     }
 
     #[test]
@@ -263,8 +262,8 @@ mod tests {
         let order = Order::new_limit(
             config.symbol.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100.00)),
+            Quantity::from_int(1),
+            Price::from_f64(100.00),
             TimeInForce::Gtc,
         );
 
@@ -279,8 +278,8 @@ mod tests {
         let order = Order::new_limit(
             config.symbol.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100.001)), // Not aligned to 0.01 tick size
+            Quantity::from_int(1),
+            Price::from_f64(100.001), // Not aligned to 0.01 tick size
             TimeInForce::Gtc,
         );
 
@@ -296,8 +295,8 @@ mod tests {
         let order = Order::new_limit(
             config.symbol.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100.00)),
+            Quantity::from_int(1),
+            Price::from_f64(100.00),
             TimeInForce::Gtc,
         );
 

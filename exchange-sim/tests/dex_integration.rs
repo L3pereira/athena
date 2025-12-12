@@ -10,11 +10,8 @@
 
 use exchange_sim::{
     AccountRepository, AddLiquidityCommand, LiquidityPool, LiquidityUseCase, PoolReader,
-    PoolWriter, RemoveLiquidityCommand, SimulationClock, SwapCommand, SwapUseCase,
+    PoolWriter, RemoveLiquidityCommand, SimulationClock, SwapCommand, SwapUseCase, Value,
 };
-use rust_decimal::Decimal;
-use rust_decimal::prelude::*;
-use rust_decimal_macros::dec;
 use std::sync::Arc;
 
 /// Setup helper for DEX tests
@@ -35,7 +32,7 @@ impl DexTestContext {
         }
     }
 
-    async fn setup_account_with_balances(&self, owner: &str, balances: Vec<(&str, Decimal)>) {
+    async fn setup_account_with_balances(&self, owner: &str, balances: Vec<(&str, Value)>) {
         let mut account = self.account_repo.get_or_create(owner).await;
         for (asset, amount) in balances {
             account.deposit(asset, amount);
@@ -47,13 +44,16 @@ impl DexTestContext {
         &self,
         token_a: &str,
         token_b: &str,
-        reserve_a: Decimal,
-        reserve_b: Decimal,
+        reserve_a: Value,
+        reserve_b: Value,
     ) -> LiquidityPool {
         let mut pool = LiquidityPool::new(token_a, token_b);
         pool.reserve_a = reserve_a;
         pool.reserve_b = reserve_b;
-        pool.lp_token_supply = (reserve_a * reserve_b).sqrt().unwrap_or(dec!(0));
+        // LP supply = sqrt(reserve_a * reserve_b)
+        let ra = reserve_a.to_f64();
+        let rb = reserve_b.to_f64();
+        pool.lp_token_supply = Value::from_f64((ra * rb).sqrt());
         self.pool_repo.save(pool.clone()).await;
         pool
     }
@@ -103,8 +103,14 @@ mod liquidity_pool_tests {
         let ctx = DexTestContext::new();
 
         // Setup: trader with tokens
-        ctx.setup_account_with_balances("lp1", vec![("USDT", dec!(10000)), ("ETH", dec!(10))])
-            .await;
+        ctx.setup_account_with_balances(
+            "lp1",
+            vec![
+                ("USDT", Value::from_int(10000)),
+                ("ETH", Value::from_int(10)),
+            ],
+        )
+        .await;
 
         let use_case = ctx.liquidity_use_case();
 
@@ -112,28 +118,28 @@ mod liquidity_pool_tests {
         let command = AddLiquidityCommand {
             token_a: "USDT".to_string(),
             token_b: "ETH".to_string(),
-            amount_a: dec!(5000),
-            amount_b: dec!(5),
-            min_lp_tokens: dec!(0),
+            amount_a: Value::from_int(5000),
+            amount_b: Value::from_int(5),
+            min_lp_tokens: Value::ZERO,
         };
 
         let result = use_case.add_liquidity("lp1", command).await;
         assert!(result.is_ok());
 
         let result = result.unwrap();
-        assert!(result.result.lp_tokens > dec!(0));
-        assert_eq!(result.result.share_of_pool, dec!(1)); // 100% share for first LP
+        assert!(result.result.lp_tokens.raw() > 0);
+        assert_eq!(result.result.share_of_pool_bps, 10000); // 100% share for first LP (10000 bps)
 
         // Verify pool created
         let pool = ctx.pool_repo.get(&result.pool_id).await.unwrap();
-        assert_eq!(pool.reserve_a, dec!(5000));
-        assert_eq!(pool.reserve_b, dec!(5));
+        assert_eq!(pool.reserve_a, Value::from_int(5000));
+        assert_eq!(pool.reserve_b, Value::from_int(5));
 
         // Verify account balances updated
         let account = ctx.account_repo.get_by_owner("lp1").await.unwrap();
-        assert_eq!(account.balance("USDT").available, dec!(5000));
-        assert_eq!(account.balance("ETH").available, dec!(5));
-        assert!(account.balance(&pool.lp_token_symbol).available > dec!(0));
+        assert_eq!(account.balance("USDT").available, Value::from_int(5000));
+        assert_eq!(account.balance("ETH").available, Value::from_int(5));
+        assert!(account.balance(&pool.lp_token_symbol).available.raw() > 0);
     }
 
     #[tokio::test]
@@ -142,12 +148,15 @@ mod liquidity_pool_tests {
 
         // Setup pool with existing liquidity
         let pool = ctx
-            .setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+            .setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
         // Setup second LP
-        ctx.setup_account_with_balances("lp2", vec![("USDT", dec!(5000)), ("ETH", dec!(5))])
-            .await;
+        ctx.setup_account_with_balances(
+            "lp2",
+            vec![("USDT", Value::from_int(5000)), ("ETH", Value::from_int(5))],
+        )
+        .await;
 
         let use_case = ctx.liquidity_use_case();
 
@@ -155,9 +164,9 @@ mod liquidity_pool_tests {
         let command = AddLiquidityCommand {
             token_a: "USDT".to_string(),
             token_b: "ETH".to_string(),
-            amount_a: dec!(5000),
-            amount_b: dec!(5),
-            min_lp_tokens: dec!(0),
+            amount_a: Value::from_int(5000),
+            amount_b: Value::from_int(5),
+            min_lp_tokens: Value::ZERO,
         };
 
         let result = use_case.add_liquidity("lp2", command).await;
@@ -165,14 +174,13 @@ mod liquidity_pool_tests {
 
         let result = result.unwrap();
         // Should get roughly 1/3 of pool (5000 added to 10000 existing)
-        assert!(
-            result.result.share_of_pool > dec!(0.3) && result.result.share_of_pool < dec!(0.35)
-        );
+        let share_bps = result.result.share_of_pool_bps;
+        assert!(share_bps > 3000 && share_bps < 3500); // 30-35% as bps
 
         // Verify pool reserves updated
         let updated_pool = ctx.pool_repo.get(&pool.id).await.unwrap();
-        assert_eq!(updated_pool.reserve_a, dec!(15000));
-        assert_eq!(updated_pool.reserve_b, dec!(15));
+        assert_eq!(updated_pool.reserve_a, Value::from_int(15000));
+        assert_eq!(updated_pool.reserve_b, Value::from_int(15));
     }
 
     #[tokio::test]
@@ -180,8 +188,14 @@ mod liquidity_pool_tests {
         let ctx = DexTestContext::new();
 
         // Setup: create pool with liquidity from LP
-        ctx.setup_account_with_balances("lp1", vec![("USDT", dec!(10000)), ("ETH", dec!(10))])
-            .await;
+        ctx.setup_account_with_balances(
+            "lp1",
+            vec![
+                ("USDT", Value::from_int(10000)),
+                ("ETH", Value::from_int(10)),
+            ],
+        )
+        .await;
 
         let use_case = ctx.liquidity_use_case();
 
@@ -189,9 +203,9 @@ mod liquidity_pool_tests {
         let add_command = AddLiquidityCommand {
             token_a: "USDT".to_string(),
             token_b: "ETH".to_string(),
-            amount_a: dec!(5000),
-            amount_b: dec!(5),
-            min_lp_tokens: dec!(0),
+            amount_a: Value::from_int(5000),
+            amount_b: Value::from_int(5),
+            min_lp_tokens: Value::ZERO,
         };
 
         let add_result = use_case.add_liquidity("lp1", add_command).await.unwrap();
@@ -199,11 +213,12 @@ mod liquidity_pool_tests {
         let lp_tokens = add_result.result.lp_tokens;
 
         // Remove half of liquidity
+        let half_lp = Value::from_raw(lp_tokens.raw() / 2);
         let remove_command = RemoveLiquidityCommand {
             pool_id,
-            lp_tokens: lp_tokens / dec!(2),
-            min_amount_a: dec!(0),
-            min_amount_b: dec!(0),
+            lp_tokens: half_lp,
+            min_amount_a: Value::ZERO,
+            min_amount_b: Value::ZERO,
         };
 
         let remove_result = use_case.remove_liquidity("lp1", remove_command).await;
@@ -211,26 +226,26 @@ mod liquidity_pool_tests {
 
         let remove_result = remove_result.unwrap();
         // Should get back roughly half of tokens
-        assert!(
-            remove_result.result.amount_a > dec!(2400)
-                && remove_result.result.amount_a < dec!(2600)
-        );
-        assert!(
-            remove_result.result.amount_b > dec!(2.4) && remove_result.result.amount_b < dec!(2.6)
-        );
+        let amount_a = remove_result.result.amount_a.to_f64();
+        let amount_b = remove_result.result.amount_b.to_f64();
+        assert!(amount_a > 2400.0 && amount_a < 2600.0);
+        assert!(amount_b > 2.4 && amount_b < 2.6);
 
         // Verify account received tokens back
         let account = ctx.account_repo.get_by_owner("lp1").await.unwrap();
-        assert!(account.balance("USDT").available > dec!(7000));
-        assert!(account.balance("ETH").available > dec!(7));
+        assert!(account.balance("USDT").available.to_f64() > 7000.0);
+        assert!(account.balance("ETH").available.to_f64() > 7.0);
     }
 
     #[tokio::test]
     async fn test_insufficient_lp_tokens() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_account_with_balances("lp1", vec![("USDT", dec!(5000)), ("ETH", dec!(5))])
-            .await;
+        ctx.setup_account_with_balances(
+            "lp1",
+            vec![("USDT", Value::from_int(5000)), ("ETH", Value::from_int(5))],
+        )
+        .await;
 
         let use_case = ctx.liquidity_use_case();
 
@@ -238,20 +253,21 @@ mod liquidity_pool_tests {
         let add_command = AddLiquidityCommand {
             token_a: "USDT".to_string(),
             token_b: "ETH".to_string(),
-            amount_a: dec!(5000),
-            amount_b: dec!(5),
-            min_lp_tokens: dec!(0),
+            amount_a: Value::from_int(5000),
+            amount_b: Value::from_int(5),
+            min_lp_tokens: Value::ZERO,
         };
 
         let add_result = use_case.add_liquidity("lp1", add_command).await.unwrap();
         let lp_tokens = add_result.result.lp_tokens;
 
         // Try to remove more LP tokens than owned
+        let double_lp = Value::from_raw(lp_tokens.raw() * 2);
         let remove_command = RemoveLiquidityCommand {
             pool_id: add_result.pool_id,
-            lp_tokens: lp_tokens * dec!(2), // Double what we have
-            min_amount_a: dec!(0),
-            min_amount_b: dec!(0),
+            lp_tokens: double_lp,
+            min_amount_a: Value::ZERO,
+            min_amount_b: Value::ZERO,
         };
 
         let result = use_case.remove_liquidity("lp1", remove_command).await;
@@ -271,11 +287,11 @@ mod swap_tests {
         let ctx = DexTestContext::new();
 
         // Setup pool: 10000 USDT / 10 ETH = 1000 USDT/ETH
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
         // Setup trader
-        ctx.setup_account_with_balances("trader1", vec![("USDT", dec!(1000))])
+        ctx.setup_account_with_balances("trader1", vec![("USDT", Value::from_int(1000))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -284,8 +300,8 @@ mod swap_tests {
         let command = SwapCommand {
             token_in: "USDT".to_string(),
             token_out: "ETH".to_string(),
-            amount_in: dec!(1000),
-            min_amount_out: dec!(0),
+            amount_in: Value::from_int(1000),
+            min_amount_out: Value::ZERO,
         };
 
         let result = use_case.execute("trader1", command).await;
@@ -293,13 +309,14 @@ mod swap_tests {
 
         let result = result.unwrap();
         // With constant product formula, should get slightly less than 1 ETH due to price impact
-        assert!(result.swap_result.amount_out > dec!(0.9));
-        assert!(result.swap_result.amount_out < dec!(1));
+        let amount_out = result.swap_result.amount_out.to_f64();
+        assert!(amount_out > 0.9);
+        assert!(amount_out < 1.0);
 
         // Verify account balances
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
-        assert_eq!(account.balance("USDT").available, dec!(0));
-        assert!(account.balance("ETH").available > dec!(0.9));
+        assert_eq!(account.balance("USDT").available, Value::ZERO);
+        assert!(account.balance("ETH").available.to_f64() > 0.9);
     }
 
     #[tokio::test]
@@ -307,11 +324,11 @@ mod swap_tests {
         let ctx = DexTestContext::new();
 
         // Setup pool
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
         // Setup trader with ETH
-        ctx.setup_account_with_balances("trader1", vec![("ETH", dec!(1))])
+        ctx.setup_account_with_balances("trader1", vec![("ETH", Value::from_int(1))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -320,8 +337,8 @@ mod swap_tests {
         let command = SwapCommand {
             token_in: "ETH".to_string(),
             token_out: "USDT".to_string(),
-            amount_in: dec!(1),
-            min_amount_out: dec!(0),
+            amount_in: Value::from_int(1),
+            min_amount_out: Value::ZERO,
         };
 
         let result = use_case.execute("trader1", command).await;
@@ -329,23 +346,24 @@ mod swap_tests {
 
         let result = result.unwrap();
         // Should get roughly 900 USDT (less due to price impact)
-        assert!(result.swap_result.amount_out > dec!(800));
-        assert!(result.swap_result.amount_out < dec!(1000));
+        let amount_out = result.swap_result.amount_out.to_f64();
+        assert!(amount_out > 800.0);
+        assert!(amount_out < 1000.0);
 
         // Verify account
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
-        assert_eq!(account.balance("ETH").available, dec!(0));
-        assert!(account.balance("USDT").available > dec!(800));
+        assert_eq!(account.balance("ETH").available, Value::ZERO);
+        assert!(account.balance("USDT").available.to_f64() > 800.0);
     }
 
     #[tokio::test]
     async fn test_swap_slippage_protection() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
-        ctx.setup_account_with_balances("trader1", vec![("USDT", dec!(1000))])
+        ctx.setup_account_with_balances("trader1", vec![("USDT", Value::from_int(1000))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -354,8 +372,8 @@ mod swap_tests {
         let command = SwapCommand {
             token_in: "USDT".to_string(),
             token_out: "ETH".to_string(),
-            amount_in: dec!(1000),
-            min_amount_out: dec!(2), // Expecting 2 ETH, but will only get ~0.9
+            amount_in: Value::from_int(1000),
+            min_amount_out: Value::from_int(2), // Expecting 2 ETH, but will only get ~0.9
         };
 
         let result = use_case.execute("trader1", command).await;
@@ -363,17 +381,17 @@ mod swap_tests {
 
         // Verify funds not deducted
         let account = ctx.account_repo.get_by_owner("trader1").await.unwrap();
-        assert_eq!(account.balance("USDT").available, dec!(1000));
+        assert_eq!(account.balance("USDT").available, Value::from_int(1000));
     }
 
     #[tokio::test]
     async fn test_swap_insufficient_balance() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
-        ctx.setup_account_with_balances("trader1", vec![("USDT", dec!(100))])
+        ctx.setup_account_with_balances("trader1", vec![("USDT", Value::from_int(100))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -382,8 +400,8 @@ mod swap_tests {
         let command = SwapCommand {
             token_in: "USDT".to_string(),
             token_out: "ETH".to_string(),
-            amount_in: dec!(1000), // Only have 100
-            min_amount_out: dec!(0),
+            amount_in: Value::from_int(1000), // Only have 100
+            min_amount_out: Value::ZERO,
         };
 
         let result = use_case.execute("trader1", command).await;
@@ -394,7 +412,7 @@ mod swap_tests {
     async fn test_swap_quote() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -403,17 +421,17 @@ mod swap_tests {
         let command = SwapCommand {
             token_in: "USDT".to_string(),
             token_out: "ETH".to_string(),
-            amount_in: dec!(1000),
-            min_amount_out: dec!(0),
+            amount_in: Value::from_int(1000),
+            min_amount_out: Value::ZERO,
         };
 
         let quote = use_case.quote(&command).await;
         assert!(quote.is_ok());
 
         let quote = quote.unwrap();
-        assert!(quote.amount_out > dec!(0.9));
-        assert!(quote.fee_amount > dec!(0));
-        assert!(quote.price_impact > dec!(0));
+        assert!(quote.amount_out.to_f64() > 0.9);
+        assert!(quote.fee_amount.raw() > 0);
+        assert!(quote.price_impact_bps > 0);
     }
 
     #[tokio::test]
@@ -421,10 +439,10 @@ mod swap_tests {
         let ctx = DexTestContext::new();
 
         // Small pool
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(1000), dec!(1))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(1000), Value::from_int(1))
             .await;
 
-        ctx.setup_account_with_balances("trader1", vec![("USDT", dec!(500))])
+        ctx.setup_account_with_balances("trader1", vec![("USDT", Value::from_int(500))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -433,14 +451,14 @@ mod swap_tests {
         let command = SwapCommand {
             token_in: "USDT".to_string(),
             token_out: "ETH".to_string(),
-            amount_in: dec!(500), // 50% of pool's USDT
-            min_amount_out: dec!(0),
+            amount_in: Value::from_int(500), // 50% of pool's USDT
+            min_amount_out: Value::ZERO,
         };
 
         let result = use_case.execute("trader1", command).await.unwrap();
 
-        // High price impact expected
-        assert!(result.swap_result.price_impact > dec!(0.3)); // > 30% price impact
+        // High price impact expected (> 30% = 3000 bps)
+        assert!(result.swap_result.price_impact_bps > 3000);
     }
 }
 
@@ -456,11 +474,11 @@ mod pool_query_tests {
         let ctx = DexTestContext::new();
 
         // Create multiple pools
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
-        ctx.setup_pool_with_liquidity("USDT", "BTC", dec!(50000), dec!(1))
+        ctx.setup_pool_with_liquidity("USDT", "BTC", Value::from_int(50000), Value::from_int(1))
             .await;
-        ctx.setup_pool_with_liquidity("ETH", "BTC", dec!(10), dec!(0.2))
+        ctx.setup_pool_with_liquidity("ETH", "BTC", Value::from_int(10), Value::from_f64(0.2))
             .await;
 
         let use_case = ctx.liquidity_use_case();
@@ -474,7 +492,7 @@ mod pool_query_tests {
         let ctx = DexTestContext::new();
 
         let pool = ctx
-            .setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+            .setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
         // Should find regardless of token order
@@ -493,7 +511,11 @@ mod pool_query_tests {
 
         ctx.setup_account_with_balances(
             "lp1",
-            vec![("USDT", dec!(20000)), ("ETH", dec!(20)), ("BTC", dec!(1))],
+            vec![
+                ("USDT", Value::from_int(20000)),
+                ("ETH", Value::from_int(20)),
+                ("BTC", Value::from_int(1)),
+            ],
         )
         .await;
 
@@ -506,9 +528,9 @@ mod pool_query_tests {
                 AddLiquidityCommand {
                     token_a: "USDT".to_string(),
                     token_b: "ETH".to_string(),
-                    amount_a: dec!(5000),
-                    amount_b: dec!(5),
-                    min_lp_tokens: dec!(0),
+                    amount_a: Value::from_int(5000),
+                    amount_b: Value::from_int(5),
+                    min_lp_tokens: Value::ZERO,
                 },
             )
             .await
@@ -520,9 +542,9 @@ mod pool_query_tests {
                 AddLiquidityCommand {
                     token_a: "USDT".to_string(),
                     token_b: "BTC".to_string(),
-                    amount_a: dec!(10000),
-                    amount_b: dec!(0.5),
-                    min_lp_tokens: dec!(0),
+                    amount_a: Value::from_int(10000),
+                    amount_b: Value::from_f64(0.5),
+                    min_lp_tokens: Value::ZERO,
                 },
             )
             .await
@@ -544,8 +566,14 @@ mod impermanent_loss_tests {
     async fn test_impermanent_loss_calculation() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_account_with_balances("lp1", vec![("USDT", dec!(10000)), ("ETH", dec!(10))])
-            .await;
+        ctx.setup_account_with_balances(
+            "lp1",
+            vec![
+                ("USDT", Value::from_int(10000)),
+                ("ETH", Value::from_int(10)),
+            ],
+        )
+        .await;
 
         let use_case = ctx.liquidity_use_case();
 
@@ -556,9 +584,9 @@ mod impermanent_loss_tests {
                 AddLiquidityCommand {
                     token_a: "USDT".to_string(),
                     token_b: "ETH".to_string(),
-                    amount_a: dec!(5000),
-                    amount_b: dec!(5),
-                    min_lp_tokens: dec!(0),
+                    amount_a: Value::from_int(5000),
+                    amount_b: Value::from_int(5),
+                    min_lp_tokens: Value::ZERO,
                 },
             )
             .await
@@ -566,8 +594,8 @@ mod impermanent_loss_tests {
 
         // Simulate price change by modifying pool reserves (ETH price doubles)
         let mut pool = ctx.pool_repo.get(&result.pool_id).await.unwrap();
-        pool.reserve_a = dec!(7071); // sqrt(5000 * 10000) approximately
-        pool.reserve_b = dec!(3.536); // To maintain k = 5000 * 5 = 25000
+        pool.reserve_a = Value::from_int(7071); // sqrt(5000 * 10000) approximately
+        pool.reserve_b = Value::from_f64(3.536); // To maintain k = 5000 * 5 = 25000
         ctx.pool_repo.save(pool).await;
 
         // Calculate IL
@@ -578,8 +606,8 @@ mod impermanent_loss_tests {
 
         // Should show some impermanent loss (2x price change gives ~5.7% IL, but with
         // price changes it can vary; just verify it's positive and reasonable)
-        assert!(il > dec!(0));
-        assert!(il < dec!(0.5)); // IL should be less than 50% for any reasonable scenario
+        assert!(il > 0);
+        assert!(il < 5000); // IL should be less than 50% (5000 bps) for any reasonable scenario
     }
 }
 
@@ -594,7 +622,7 @@ mod edge_cases {
     async fn test_swap_on_nonexistent_pool() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_account_with_balances("trader1", vec![("USDT", dec!(1000))])
+        ctx.setup_account_with_balances("trader1", vec![("USDT", Value::from_int(1000))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -602,8 +630,8 @@ mod edge_cases {
         let command = SwapCommand {
             token_in: "USDT".to_string(),
             token_out: "NONEXISTENT".to_string(),
-            amount_in: dec!(100),
-            min_amount_out: dec!(0),
+            amount_in: Value::from_int(100),
+            min_amount_out: Value::ZERO,
         };
 
         let result = use_case.execute("trader1", command).await;
@@ -614,10 +642,10 @@ mod edge_cases {
     async fn test_multiple_swaps_affect_price() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_pool_with_liquidity("USDT", "ETH", dec!(10000), dec!(10))
+        ctx.setup_pool_with_liquidity("USDT", "ETH", Value::from_int(10000), Value::from_int(10))
             .await;
 
-        ctx.setup_account_with_balances("trader1", vec![("USDT", dec!(3000))])
+        ctx.setup_account_with_balances("trader1", vec![("USDT", Value::from_int(3000))])
             .await;
 
         let use_case = ctx.swap_use_case();
@@ -629,8 +657,8 @@ mod edge_cases {
                 SwapCommand {
                     token_in: "USDT".to_string(),
                     token_out: "ETH".to_string(),
-                    amount_in: dec!(1000),
-                    min_amount_out: dec!(0),
+                    amount_in: Value::from_int(1000),
+                    min_amount_out: Value::ZERO,
                 },
             )
             .await
@@ -643,23 +671,26 @@ mod edge_cases {
                 SwapCommand {
                     token_in: "USDT".to_string(),
                     token_out: "ETH".to_string(),
-                    amount_in: dec!(1000),
-                    min_amount_out: dec!(0),
+                    amount_in: Value::from_int(1000),
+                    min_amount_out: Value::ZERO,
                 },
             )
             .await
             .unwrap();
 
         // Second swap should get less ETH due to price movement
-        assert!(result2.swap_result.amount_out < result1.swap_result.amount_out);
+        assert!(result2.swap_result.amount_out.raw() < result1.swap_result.amount_out.raw());
     }
 
     #[tokio::test]
     async fn test_remove_all_liquidity() {
         let ctx = DexTestContext::new();
 
-        ctx.setup_account_with_balances("lp1", vec![("USDT", dec!(5000)), ("ETH", dec!(5))])
-            .await;
+        ctx.setup_account_with_balances(
+            "lp1",
+            vec![("USDT", Value::from_int(5000)), ("ETH", Value::from_int(5))],
+        )
+        .await;
 
         let use_case = ctx.liquidity_use_case();
 
@@ -670,9 +701,9 @@ mod edge_cases {
                 AddLiquidityCommand {
                     token_a: "USDT".to_string(),
                     token_b: "ETH".to_string(),
-                    amount_a: dec!(5000),
-                    amount_b: dec!(5),
-                    min_lp_tokens: dec!(0),
+                    amount_a: Value::from_int(5000),
+                    amount_b: Value::from_int(5),
+                    min_lp_tokens: Value::ZERO,
                 },
             )
             .await
@@ -685,14 +716,14 @@ mod edge_cases {
                 RemoveLiquidityCommand {
                     pool_id: add_result.pool_id,
                     lp_tokens: add_result.result.lp_tokens,
-                    min_amount_a: dec!(0),
-                    min_amount_b: dec!(0),
+                    min_amount_a: Value::ZERO,
+                    min_amount_b: Value::ZERO,
                 },
             )
             .await
             .unwrap();
 
-        assert_eq!(remove_result.remaining_lp_tokens, dec!(0));
+        assert_eq!(remove_result.remaining_lp_tokens, Value::ZERO);
 
         // Position should be deleted
         let positions = use_case.get_positions("lp1").await.unwrap();

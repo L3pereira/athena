@@ -5,7 +5,7 @@
 //! - Cold wallets (slow access, higher security)
 //! - Smart contracts (DEX, on-chain custody)
 
-use rust_decimal::Decimal;
+use crate::domain::value_objects::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -110,13 +110,13 @@ pub struct WithdrawalConfig {
     /// Network for withdrawal
     pub network: Network,
     /// Fixed withdrawal fee
-    pub fee: Decimal,
+    pub fee: Value,
     /// Minimum withdrawal amount
-    pub min_amount: Decimal,
+    pub min_amount: Value,
     /// Maximum withdrawal amount per transaction
-    pub max_amount: Decimal,
+    pub max_amount: Value,
     /// Maximum daily withdrawal amount
-    pub daily_limit: Decimal,
+    pub daily_limit: Value,
     /// Number of confirmations required
     pub confirmations_required: u32,
     /// Estimated processing time in seconds
@@ -130,32 +130,32 @@ impl WithdrawalConfig {
         Self {
             asset: asset.into(),
             network,
-            fee: Decimal::ZERO,
-            min_amount: Decimal::ZERO,
-            max_amount: Decimal::new(1_000_000, 0),
-            daily_limit: Decimal::new(10_000_000, 0),
+            fee: Value::ZERO,
+            min_amount: Value::ZERO,
+            max_amount: Value::from_int(1_000_000),
+            daily_limit: Value::from_int(10_000_000),
             confirmations_required: 1,
             processing_time_secs: 60,
             enabled: true,
         }
     }
 
-    pub fn with_fee(mut self, fee: Decimal) -> Self {
+    pub fn with_fee(mut self, fee: Value) -> Self {
         self.fee = fee;
         self
     }
 
-    pub fn with_min_amount(mut self, min: Decimal) -> Self {
+    pub fn with_min_amount(mut self, min: Value) -> Self {
         self.min_amount = min;
         self
     }
 
-    pub fn with_max_amount(mut self, max: Decimal) -> Self {
+    pub fn with_max_amount(mut self, max: Value) -> Self {
         self.max_amount = max;
         self
     }
 
-    pub fn with_daily_limit(mut self, limit: Decimal) -> Self {
+    pub fn with_daily_limit(mut self, limit: Value) -> Self {
         self.daily_limit = limit;
         self
     }
@@ -171,17 +171,17 @@ impl WithdrawalConfig {
     }
 
     /// Validate a withdrawal amount
-    pub fn validate_amount(&self, amount: Decimal) -> Result<(), WithdrawalError> {
+    pub fn validate_amount(&self, amount: Value) -> Result<(), WithdrawalError> {
         if !self.enabled {
             return Err(WithdrawalError::Disabled);
         }
-        if amount < self.min_amount {
+        if amount.raw() < self.min_amount.raw() {
             return Err(WithdrawalError::BelowMinimum {
                 amount,
                 minimum: self.min_amount,
             });
         }
-        if amount > self.max_amount {
+        if amount.raw() > self.max_amount.raw() {
             return Err(WithdrawalError::ExceedsMaximum {
                 amount,
                 maximum: self.max_amount,
@@ -191,8 +191,8 @@ impl WithdrawalConfig {
     }
 
     /// Calculate total amount needed (amount + fee)
-    pub fn total_required(&self, amount: Decimal) -> Decimal {
-        amount + self.fee
+    pub fn total_required(&self, amount: Value) -> Value {
+        Value::from_raw(amount.raw() + self.fee.raw())
     }
 }
 
@@ -206,7 +206,7 @@ pub struct Custodian {
     /// Address/identifier (wallet address, contract address, etc.)
     pub address: Option<String>,
     /// Asset balances held by this custodian
-    pub balances: HashMap<String, Decimal>,
+    pub balances: HashMap<String, Value>,
     /// Withdrawal configurations per asset
     pub withdrawal_configs: HashMap<String, WithdrawalConfig>,
     /// Whether this custodian is active
@@ -241,23 +241,23 @@ impl Custodian {
     }
 
     /// Get balance for an asset
-    pub fn balance(&self, asset: &str) -> Decimal {
-        self.balances.get(asset).copied().unwrap_or(Decimal::ZERO)
+    pub fn balance(&self, asset: &str) -> Value {
+        self.balances.get(asset).copied().unwrap_or(Value::ZERO)
     }
 
     /// Deposit funds into this custodian
-    pub fn deposit(&mut self, asset: &str, amount: Decimal) {
+    pub fn deposit(&mut self, asset: &str, amount: Value) {
         let balance = self
             .balances
             .entry(asset.to_string())
-            .or_insert(Decimal::ZERO);
-        *balance += amount;
+            .or_insert(Value::ZERO);
+        *balance = Value::from_raw(balance.raw() + amount.raw());
     }
 
     /// Withdraw funds from this custodian
-    pub fn withdraw(&mut self, asset: &str, amount: Decimal) -> Result<(), WithdrawalError> {
+    pub fn withdraw(&mut self, asset: &str, amount: Value) -> Result<(), WithdrawalError> {
         let balance = self.balance(asset);
-        if balance < amount {
+        if balance.raw() < amount.raw() {
             return Err(WithdrawalError::InsufficientCustodianBalance {
                 available: balance,
                 requested: amount,
@@ -265,7 +265,7 @@ impl Custodian {
         }
 
         let balance = self.balances.get_mut(asset).unwrap();
-        *balance -= amount;
+        *balance = Value::from_raw(balance.raw() - amount.raw());
         Ok(())
     }
 
@@ -297,21 +297,15 @@ pub enum WithdrawalError {
     /// Withdrawals are disabled for this asset
     Disabled,
     /// Amount below minimum
-    BelowMinimum { amount: Decimal, minimum: Decimal },
+    BelowMinimum { amount: Value, minimum: Value },
     /// Amount exceeds maximum
-    ExceedsMaximum { amount: Decimal, maximum: Decimal },
+    ExceedsMaximum { amount: Value, maximum: Value },
     /// Daily limit exceeded
-    DailyLimitExceeded { used: Decimal, limit: Decimal },
+    DailyLimitExceeded { used: Value, limit: Value },
     /// Insufficient balance in user account
-    InsufficientBalance {
-        available: Decimal,
-        requested: Decimal,
-    },
+    InsufficientBalance { available: Value, requested: Value },
     /// Insufficient balance in custodian
-    InsufficientCustodianBalance {
-        available: Decimal,
-        requested: Decimal,
-    },
+    InsufficientCustodianBalance { available: Value, requested: Value },
     /// Invalid destination address
     InvalidAddress(String),
     /// Network error
@@ -327,13 +321,28 @@ impl std::fmt::Display for WithdrawalError {
         match self {
             WithdrawalError::Disabled => write!(f, "Withdrawals are disabled"),
             WithdrawalError::BelowMinimum { amount, minimum } => {
-                write!(f, "Amount {} below minimum {}", amount, minimum)
+                write!(
+                    f,
+                    "Amount {} below minimum {}",
+                    amount.to_f64(),
+                    minimum.to_f64()
+                )
             }
             WithdrawalError::ExceedsMaximum { amount, maximum } => {
-                write!(f, "Amount {} exceeds maximum {}", amount, maximum)
+                write!(
+                    f,
+                    "Amount {} exceeds maximum {}",
+                    amount.to_f64(),
+                    maximum.to_f64()
+                )
             }
             WithdrawalError::DailyLimitExceeded { used, limit } => {
-                write!(f, "Daily limit exceeded: {} / {}", used, limit)
+                write!(
+                    f,
+                    "Daily limit exceeded: {} / {}",
+                    used.to_f64(),
+                    limit.to_f64()
+                )
             }
             WithdrawalError::InsufficientBalance {
                 available,
@@ -342,7 +351,8 @@ impl std::fmt::Display for WithdrawalError {
                 write!(
                     f,
                     "Insufficient balance: {} available, {} requested",
-                    available, requested
+                    available.to_f64(),
+                    requested.to_f64()
                 )
             }
             WithdrawalError::InsufficientCustodianBalance {
@@ -352,7 +362,8 @@ impl std::fmt::Display for WithdrawalError {
                 write!(
                     f,
                     "Insufficient custodian balance: {} available, {} requested",
-                    available, requested
+                    available.to_f64(),
+                    requested.to_f64()
                 )
             }
             WithdrawalError::InvalidAddress(addr) => write!(f, "Invalid address: {}", addr),
@@ -370,18 +381,17 @@ impl std::error::Error for WithdrawalError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_custodian_deposit_withdraw() {
         let mut custodian =
             Custodian::new("Hot Wallet", CustodianType::HotWallet, Network::Ethereum);
 
-        custodian.deposit("USDT", dec!(10000));
-        assert_eq!(custodian.balance("USDT"), dec!(10000));
+        custodian.deposit("USDT", Value::from_int(10000));
+        assert_eq!(custodian.balance("USDT"), Value::from_int(10000));
 
-        custodian.withdraw("USDT", dec!(3000)).unwrap();
-        assert_eq!(custodian.balance("USDT"), dec!(7000));
+        custodian.withdraw("USDT", Value::from_int(3000)).unwrap();
+        assert_eq!(custodian.balance("USDT"), Value::from_int(7000));
     }
 
     #[test]
@@ -389,8 +399,8 @@ mod tests {
         let mut custodian =
             Custodian::new("Hot Wallet", CustodianType::HotWallet, Network::Ethereum);
 
-        custodian.deposit("USDT", dec!(1000));
-        let result = custodian.withdraw("USDT", dec!(2000));
+        custodian.deposit("USDT", Value::from_int(1000));
+        let result = custodian.withdraw("USDT", Value::from_int(2000));
 
         assert!(matches!(
             result,
@@ -401,14 +411,17 @@ mod tests {
     #[test]
     fn test_withdrawal_config_validation() {
         let config = WithdrawalConfig::new("USDT", Network::Ethereum)
-            .with_fee(dec!(5))
-            .with_min_amount(dec!(10))
-            .with_max_amount(dec!(10000));
+            .with_fee(Value::from_int(5))
+            .with_min_amount(Value::from_int(10))
+            .with_max_amount(Value::from_int(10000));
 
-        assert!(config.validate_amount(dec!(100)).is_ok());
-        assert!(config.validate_amount(dec!(5)).is_err()); // Below minimum
-        assert!(config.validate_amount(dec!(20000)).is_err()); // Above maximum
+        assert!(config.validate_amount(Value::from_int(100)).is_ok());
+        assert!(config.validate_amount(Value::from_int(5)).is_err()); // Below minimum
+        assert!(config.validate_amount(Value::from_int(20000)).is_err()); // Above maximum
 
-        assert_eq!(config.total_required(dec!(100)), dec!(105)); // Amount + fee
+        assert_eq!(
+            config.total_required(Value::from_int(100)),
+            Value::from_int(105)
+        ); // Amount + fee
     }
 }

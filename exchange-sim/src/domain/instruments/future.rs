@@ -1,9 +1,7 @@
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 
 use super::InstrumentSpec;
-use crate::domain::{Price, Quantity, Timestamp};
+use crate::domain::{PRICE_SCALE, Price, Quantity, Rate, Timestamp, Value};
 
 /// A futures contract (e.g., BTC-DEC24)
 ///
@@ -21,10 +19,10 @@ pub struct FutureContract {
     pub tick_size: Price,
     /// Minimum quantity increment
     pub lot_size: Quantity,
-    /// Contract multiplier
-    pub multiplier: Decimal,
-    /// Initial margin requirement
-    pub initial_margin: Decimal,
+    /// Contract multiplier (scaled by PRICE_SCALE)
+    pub multiplier: i64,
+    /// Initial margin requirement in basis points (e.g., 200 = 2% = 50x max leverage)
+    pub initial_margin_bps: i64,
     /// Settlement type
     pub settlement: SettlementType,
     /// Whether this is an inverse contract
@@ -51,10 +49,10 @@ impl FutureContract {
             underlying: underlying.into(),
             symbol: symbol.into(),
             expiry,
-            tick_size: Price::from(dec!(0.01)),
-            lot_size: Quantity::from(dec!(0.001)),
-            multiplier: dec!(1),
-            initial_margin: dec!(0.02), // 2% = 50x max leverage
+            tick_size: Price::from_f64(0.01),
+            lot_size: Quantity::from_f64(0.001),
+            multiplier: PRICE_SCALE, // 1.0 scaled
+            initial_margin_bps: 200, // 2% = 50x max leverage
             settlement: SettlementType::Cash,
             is_inverse: false,
         }
@@ -70,10 +68,10 @@ impl FutureContract {
             underlying: underlying.into(),
             symbol: symbol.into(),
             expiry,
-            tick_size: Price::from(dec!(0.5)),
-            lot_size: Quantity::from(dec!(1)),
-            multiplier: dec!(1),
-            initial_margin: dec!(0.02),
+            tick_size: Price::from_f64(0.5),
+            lot_size: Quantity::from_f64(1.0),
+            multiplier: PRICE_SCALE, // 1.0 scaled
+            initial_margin_bps: 200, // 2%
             settlement: SettlementType::Cash,
             is_inverse: true,
         }
@@ -89,13 +87,14 @@ impl FutureContract {
         self
     }
 
-    pub fn with_multiplier(mut self, mult: Decimal) -> Self {
+    pub fn with_multiplier(mut self, mult: i64) -> Self {
         self.multiplier = mult;
         self
     }
 
-    pub fn with_initial_margin(mut self, margin: Decimal) -> Self {
-        self.initial_margin = margin;
+    /// Set initial margin in basis points (e.g., 200 = 2%)
+    pub fn with_initial_margin_bps(mut self, margin_bps: i64) -> Self {
+        self.initial_margin_bps = margin_bps;
         self
     }
 
@@ -120,36 +119,43 @@ impl FutureContract {
         duration.num_milliseconds() as f64 / (24.0 * 60.0 * 60.0 * 1000.0)
     }
 
-    /// Calculate annualized basis (future premium/discount)
+    /// Calculate annualized basis (future premium/discount) in basis points
     /// Basis = (future_price - spot_price) / spot_price * (365 / days_to_expiry)
-    pub fn annualized_basis(
+    pub fn annualized_basis_bps(
         &self,
         future_price: Price,
         spot_price: Price,
         now: Timestamp,
-    ) -> Decimal {
+    ) -> i64 {
         if spot_price.is_zero() {
-            return Decimal::ZERO;
+            return 0;
         }
 
         let days = self.days_to_expiry(now);
         if days <= 0.0 {
-            return Decimal::ZERO;
+            return 0;
         }
 
-        let basis = (future_price.inner() - spot_price.inner()) / spot_price.inner();
-        basis * Decimal::from_f64_retain(365.0 / days).unwrap_or(Decimal::ZERO)
+        // Calculate basis as (future - spot) / spot * 365 / days * 10000 (for bps)
+        let price_diff = future_price.raw() - spot_price.raw();
+        let basis_pct = (price_diff as f64 / spot_price.raw() as f64) * (365.0 / days);
+        (basis_pct * 10000.0) as i64
     }
 
     /// Calculate position value
-    pub fn position_value(&self, price: Price, quantity: Quantity) -> Decimal {
+    pub fn position_value(&self, price: Price, quantity: Quantity) -> Value {
         if self.is_inverse {
             if price.is_zero() {
-                return Decimal::ZERO;
+                return Value::ZERO;
             }
-            quantity.inner() * self.multiplier / price.inner()
+            // For inverse: qty * multiplier / price (settled in base asset)
+            // multiplier is scaled by PRICE_SCALE, so: qty.raw() * mult / price.raw()
+            let qty_scaled = quantity.raw() as i128 * self.multiplier as i128;
+            Value::from_raw(qty_scaled / price.raw() as i128)
         } else {
-            price.inner() * quantity.inner() * self.multiplier
+            // For linear: price * qty * multiplier / PRICE_SCALE (multiplier is scaled)
+            let notional = price.mul_qty(quantity);
+            Value::from_raw(notional.raw() * self.multiplier as i128 / PRICE_SCALE as i128)
         }
     }
 }
@@ -183,8 +189,8 @@ impl InstrumentSpec for FutureContract {
         true
     }
 
-    fn margin_requirement(&self) -> Decimal {
-        self.initial_margin
+    fn margin_requirement(&self) -> Rate {
+        Rate::from_bps(self.initial_margin_bps)
     }
 
     fn is_shortable(&self) -> bool {
@@ -236,9 +242,9 @@ mod tests {
         let future = FutureContract::linear("BTC", "BTC-MAR25", expiry);
 
         // 90 days to expiry, future at 51000, spot at 50000
-        // Basis = (51000-50000)/50000 * (365/90) = 0.02 * 4.05 = ~8.1%
-        let basis =
-            future.annualized_basis(Price::from(dec!(51000)), Price::from(dec!(50000)), now);
-        assert!(basis > dec!(0.08) && basis < dec!(0.09));
+        // Basis = (51000-50000)/50000 * (365/90) = 0.02 * 4.05 = ~8.1% = ~810 bps
+        let basis_bps =
+            future.annualized_basis_bps(Price::from_int(51000), Price::from_int(50000), now);
+        assert!(basis_bps > 800 && basis_bps < 900);
     }
 }

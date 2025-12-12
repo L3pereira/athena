@@ -8,9 +8,8 @@
 //! - Deposit address management
 
 use crate::domain::entities::Network;
-use crate::domain::value_objects::Timestamp;
+use crate::domain::value_objects::{Timestamp, Value};
 use chrono::Utc;
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -62,8 +61,8 @@ pub struct BlockchainTx {
     pub from_address: String,
     pub to_address: String,
     pub asset: String,
-    pub amount: Decimal,
-    pub fee: Decimal,
+    pub amount: Value,
+    pub fee: Value,
     pub status: TxStatus,
     pub submitted_at: Timestamp,
     pub confirmed_at: Option<Timestamp>,
@@ -77,8 +76,8 @@ impl BlockchainTx {
         from_address: impl Into<String>,
         to_address: impl Into<String>,
         asset: impl Into<String>,
-        amount: Decimal,
-        fee: Decimal,
+        amount: Value,
+        fee: Value,
         now: Timestamp,
     ) -> Self {
         Self {
@@ -187,9 +186,9 @@ pub struct NetworkConfig {
     /// Number of confirmations for finality
     pub confirmations_required: u32,
     /// Base fee per transaction (in native token)
-    pub base_fee: Decimal,
-    /// Current network congestion (0.0 = empty, 1.0 = full)
-    pub congestion: f64,
+    pub base_fee: Value,
+    /// Current network congestion (0-100, where 100 = fully congested)
+    pub congestion_pct: i32,
     /// Maximum transactions per block
     pub max_tx_per_block: u32,
 }
@@ -200,8 +199,8 @@ impl NetworkConfig {
             network: Network::Bitcoin,
             block_time_secs: 600, // 10 minutes
             confirmations_required: 6,
-            base_fee: Decimal::new(1, 5), // 0.00001 BTC
-            congestion: 0.3,
+            base_fee: Value::from_raw(1000), // 0.00001 BTC (1000 = 0.00001 with 8 decimal places)
+            congestion_pct: 30,
             max_tx_per_block: 2500,
         }
     }
@@ -211,8 +210,8 @@ impl NetworkConfig {
             network: Network::Ethereum,
             block_time_secs: 12,
             confirmations_required: 12,
-            base_fee: Decimal::new(1, 9), // 1 gwei
-            congestion: 0.5,
+            base_fee: Value::from_raw(10), // 1 gwei = 0.0000000001 (very small)
+            congestion_pct: 50,
             max_tx_per_block: 500,
         }
     }
@@ -222,8 +221,8 @@ impl NetworkConfig {
             network: Network::Solana,
             block_time_secs: 1, // ~400ms slots
             confirmations_required: 32,
-            base_fee: Decimal::new(5, 6), // 0.000005 SOL
-            congestion: 0.2,
+            base_fee: Value::from_raw(500), // 0.000005 SOL
+            congestion_pct: 20,
             max_tx_per_block: 10000,
         }
     }
@@ -233,8 +232,8 @@ impl NetworkConfig {
             network: Network::Bsc,
             block_time_secs: 3,
             confirmations_required: 15,
-            base_fee: Decimal::new(5, 9), // 5 gwei
-            congestion: 0.4,
+            base_fee: Value::from_raw(50), // 5 gwei
+            congestion_pct: 40,
             max_tx_per_block: 1000,
         }
     }
@@ -244,8 +243,8 @@ impl NetworkConfig {
             network: Network::Polygon,
             block_time_secs: 2,
             confirmations_required: 20,
-            base_fee: Decimal::new(30, 9), // 30 gwei
-            congestion: 0.3,
+            base_fee: Value::from_raw(300), // 30 gwei
+            congestion_pct: 30,
             max_tx_per_block: 500,
         }
     }
@@ -255,18 +254,18 @@ impl NetworkConfig {
             network: Network::Arbitrum,
             block_time_secs: 1,
             confirmations_required: 20,
-            base_fee: Decimal::new(1, 10), // 0.1 gwei
-            congestion: 0.3,
+            base_fee: Value::from_raw(1), // 0.1 gwei
+            congestion_pct: 30,
             max_tx_per_block: 2000,
         }
     }
 
     /// Calculate estimated fee based on congestion
-    pub fn estimate_fee(&self) -> Decimal {
-        // Fee increases with congestion
-        let multiplier =
-            Decimal::from_f64_retain(1.0 + self.congestion * 2.0).unwrap_or(Decimal::ONE);
-        self.base_fee * multiplier
+    pub fn estimate_fee(&self) -> Value {
+        // Fee increases with congestion: base_fee * (1 + congestion * 2)
+        // congestion is 0-100, so multiply: base * (100 + congestion * 2) / 100
+        let multiplier = 100 + self.congestion_pct * 2;
+        Value::from_raw(self.base_fee.raw() * multiplier as i128 / 100)
     }
 
     /// Estimate time to confirmation in seconds
@@ -453,7 +452,7 @@ impl BlockchainSimulator {
         from_address: impl Into<String>,
         to_address: impl Into<String>,
         asset: impl Into<String>,
-        amount: Decimal,
+        amount: Value,
         now: Timestamp,
     ) -> Result<TxId, BlockchainError> {
         let state = self
@@ -531,7 +530,7 @@ impl BlockchainSimulator {
     }
 
     /// Estimate transaction fee for a network
-    pub fn estimate_fee(&self, network: &Network) -> Option<Decimal> {
+    pub fn estimate_fee(&self, network: &Network) -> Option<Value> {
         self.networks.get(network).map(|s| s.config.estimate_fee())
     }
 
@@ -620,14 +619,14 @@ mod tests {
                 "0xfrom",
                 "0xto",
                 "ETH",
-                Decimal::new(1, 0),
+                Value::from_int(1),
                 test_timestamp(),
             )
             .unwrap();
 
         let tx = sim.get_transaction(&Network::Ethereum, &tx_id).unwrap();
         assert!(tx.is_pending());
-        assert_eq!(tx.amount, Decimal::ONE);
+        assert_eq!(tx.amount, Value::from_int(1));
     }
 
     #[test]
@@ -642,7 +641,7 @@ mod tests {
                 "0xfrom",
                 "0xto",
                 "ETH",
-                Decimal::ONE,
+                Value::from_int(1),
                 now,
             )
             .unwrap();
@@ -668,7 +667,7 @@ mod tests {
                 "0xfrom",
                 "0xto",
                 "ETH",
-                Decimal::ONE,
+                Value::from_int(1),
                 now,
             )
             .unwrap();
@@ -699,8 +698,8 @@ mod tests {
         let btc_fee = sim.estimate_fee(&Network::Bitcoin).unwrap();
 
         // Fees should be positive
-        assert!(eth_fee > Decimal::ZERO);
-        assert!(btc_fee > Decimal::ZERO);
+        assert!(eth_fee.raw() > 0);
+        assert!(btc_fee.raw() > 0);
     }
 
     #[test]

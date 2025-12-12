@@ -8,9 +8,8 @@
 
 use crate::domain::{
     AmmType, CustodianType, ExerciseStyle, FuturesConfig, InstrumentType, Network, OptionConfig,
-    OptionType, Price, Quantity, Side, Symbol, TimeInForce, TradingPairConfig,
+    OptionType, PRICE_SCALE, Price, Quantity, Side, Symbol, TimeInForce, TradingPairConfig, Value,
 };
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -112,17 +111,17 @@ impl SimulatorConfig {
                 withdrawal_configs: vec![
                     WithdrawalConfigDto {
                         asset: "USDT".to_string(),
-                        fee: Decimal::new(5, 0),
-                        min_amount: Decimal::new(10, 0),
-                        max_amount: Decimal::new(100000, 0),
+                        fee: Value::from_int(5),
+                        min_amount: Value::from_int(10),
+                        max_amount: Value::from_int(100000),
                         confirmations: 12,
                         processing_time_secs: 120,
                     },
                     WithdrawalConfigDto {
                         asset: "ETH".to_string(),
-                        fee: Decimal::new(1, 3),
-                        min_amount: Decimal::new(1, 2),
-                        max_amount: Decimal::new(1000, 0),
+                        fee: Value::from_f64(0.001),
+                        min_amount: Value::from_f64(0.01),
+                        max_amount: Value::from_int(1000),
                         confirmations: 12,
                         processing_time_secs: 120,
                     },
@@ -135,9 +134,9 @@ impl SimulatorConfig {
                 address: Some("bc1q...simulation".to_string()),
                 withdrawal_configs: vec![WithdrawalConfigDto {
                     asset: "BTC".to_string(),
-                    fee: Decimal::new(1, 4),
-                    min_amount: Decimal::new(1, 3),
-                    max_amount: Decimal::new(100, 0),
+                    fee: Value::from_f64(0.0001),
+                    min_amount: Value::from_f64(0.001),
+                    max_amount: Value::from_int(100),
                     confirmations: 3,
                     processing_time_secs: 600,
                 }],
@@ -247,10 +246,10 @@ pub struct MarketConfig {
     pub instrument_type: InstrumentType,
     /// Tick size (price increment)
     #[serde(default)]
-    pub tick_size: Option<Decimal>,
+    pub tick_size: Option<Price>,
     /// Lot size (quantity increment)
     #[serde(default)]
-    pub lot_size: Option<Decimal>,
+    pub lot_size: Option<Quantity>,
     /// Maker fee in basis points (e.g., 10 = 0.10%)
     #[serde(default)]
     pub maker_fee_bps: Option<i32>,
@@ -312,16 +311,16 @@ impl MarketConfig {
 
         // Apply optional overrides
         if let Some(tick) = self.tick_size {
-            config = config.with_tick_size(Price::from(tick));
+            config = config.with_tick_size(tick);
         }
         if let Some(lot) = self.lot_size {
-            config = config.with_lot_size(Quantity::from(lot));
+            config = config.with_lot_size(lot);
         }
         if let Some(maker_bps) = self.maker_fee_bps {
-            config = config.with_maker_fee(Decimal::new(maker_bps.into(), 4));
+            config = config.with_maker_fee_bps(maker_bps as i64);
         }
         if let Some(taker_bps) = self.taker_fee_bps {
-            config = config.with_taker_fee(Decimal::new(taker_bps.into(), 4));
+            config = config.with_taker_fee_bps(taker_bps as i64);
         }
 
         // Apply futures config
@@ -344,28 +343,28 @@ pub struct FuturesConfigDto {
     /// Expiration timestamp (Unix millis) - None for perpetuals
     #[serde(default)]
     pub expiration_ms: Option<i64>,
-    /// Contract multiplier
+    /// Contract multiplier (1.0 = PRICE_SCALE in domain)
     #[serde(default = "default_contract_multiplier")]
-    pub contract_multiplier: Decimal,
+    pub contract_multiplier: f64,
     /// Settlement asset
     #[serde(default = "default_settlement_asset")]
     pub settlement_asset: String,
     /// Maximum leverage
     #[serde(default = "default_max_leverage")]
     pub max_leverage: u32,
-    /// Maintenance margin rate
-    #[serde(default = "default_maintenance_margin")]
-    pub maintenance_margin_rate: Decimal,
-    /// Initial margin rate
-    #[serde(default = "default_initial_margin")]
-    pub initial_margin_rate: Decimal,
+    /// Maintenance margin rate in basis points (e.g., 40 = 0.4%)
+    #[serde(default = "default_maintenance_margin_bps")]
+    pub maintenance_margin_bps: i64,
+    /// Initial margin rate in basis points (e.g., 100 = 1%)
+    #[serde(default = "default_initial_margin_bps")]
+    pub initial_margin_bps: i64,
     /// Funding interval in hours (for perpetuals)
     #[serde(default)]
     pub funding_interval_hours: Option<u32>,
 }
 
-fn default_contract_multiplier() -> Decimal {
-    Decimal::ONE
+fn default_contract_multiplier() -> f64 {
+    1.0
 }
 fn default_settlement_asset() -> String {
     "USDT".to_string()
@@ -373,11 +372,11 @@ fn default_settlement_asset() -> String {
 fn default_max_leverage() -> u32 {
     125
 }
-fn default_maintenance_margin() -> Decimal {
-    Decimal::new(4, 3) // 0.4%
+fn default_maintenance_margin_bps() -> i64 {
+    40 // 0.4%
 }
-fn default_initial_margin() -> Decimal {
-    Decimal::new(1, 2) // 1%
+fn default_initial_margin_bps() -> i64 {
+    100 // 1%
 }
 
 impl Default for FuturesConfigDto {
@@ -387,8 +386,8 @@ impl Default for FuturesConfigDto {
             contract_multiplier: default_contract_multiplier(),
             settlement_asset: default_settlement_asset(),
             max_leverage: default_max_leverage(),
-            maintenance_margin_rate: default_maintenance_margin(),
-            initial_margin_rate: default_initial_margin(),
+            maintenance_margin_bps: default_maintenance_margin_bps(),
+            initial_margin_bps: default_initial_margin_bps(),
             funding_interval_hours: Some(8),
         }
     }
@@ -398,11 +397,11 @@ impl FuturesConfigDto {
     pub fn to_domain(&self) -> FuturesConfig {
         FuturesConfig {
             expiration_ms: self.expiration_ms,
-            contract_multiplier: self.contract_multiplier,
+            contract_multiplier: (self.contract_multiplier * PRICE_SCALE as f64) as i64,
             settlement_asset: self.settlement_asset.clone(),
             max_leverage: self.max_leverage,
-            maintenance_margin_rate: self.maintenance_margin_rate,
-            initial_margin_rate: self.initial_margin_rate,
+            maintenance_margin_bps: self.maintenance_margin_bps,
+            initial_margin_bps: self.initial_margin_bps,
             funding_interval_hours: self.funding_interval_hours,
         }
     }
@@ -412,7 +411,7 @@ impl FuturesConfigDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptionConfigDto {
     /// Strike price
-    pub strike: Decimal,
+    pub strike: Price,
     /// Option type (CALL or PUT)
     pub option_type: OptionType,
     /// Expiration timestamp (Unix millis)
@@ -425,7 +424,7 @@ pub struct OptionConfigDto {
 impl OptionConfigDto {
     pub fn to_domain(&self) -> OptionConfig {
         OptionConfig {
-            strike: Price::from(self.strike),
+            strike: self.strike,
             option_type: self.option_type,
             expiration_ms: self.expiration_ms,
             exercise_style: self.exercise_style,
@@ -451,8 +450,8 @@ pub struct AccountConfig {
 pub struct DepositConfig {
     /// Asset to deposit
     pub asset: String,
-    /// Amount to deposit
-    pub amount: Decimal,
+    /// Amount to deposit (parsed from JSON number or string)
+    pub amount: Value,
 }
 
 /// Seed order configuration for initial liquidity
@@ -465,9 +464,9 @@ pub struct SeedOrderConfig {
     /// Order side
     pub side: Side,
     /// Limit price
-    pub price: Decimal,
+    pub price: Price,
     /// Quantity
-    pub quantity: Decimal,
+    pub quantity: Quantity,
     /// Time in force (defaults to GTC)
     #[serde(default)]
     pub time_in_force: Option<TimeInForce>,
@@ -499,13 +498,13 @@ pub struct WithdrawalConfigDto {
     pub asset: String,
     /// Fixed withdrawal fee
     #[serde(default)]
-    pub fee: Decimal,
+    pub fee: Value,
     /// Minimum withdrawal amount
     #[serde(default)]
-    pub min_amount: Decimal,
+    pub min_amount: Value,
     /// Maximum withdrawal amount
     #[serde(default = "default_max_withdrawal")]
-    pub max_amount: Decimal,
+    pub max_amount: Value,
     /// Confirmations required
     #[serde(default = "default_confirmations")]
     pub confirmations: u32,
@@ -514,8 +513,8 @@ pub struct WithdrawalConfigDto {
     pub processing_time_secs: u64,
 }
 
-fn default_max_withdrawal() -> Decimal {
-    Decimal::new(1_000_000, 0)
+fn default_max_withdrawal() -> Value {
+    Value::from_int(1_000_000)
 }
 
 fn default_confirmations() -> u32 {
@@ -536,19 +535,19 @@ pub struct PoolConfig {
     /// AMM type
     #[serde(default)]
     pub amm_type: AmmType,
-    /// Swap fee rate (e.g., 0.003 = 0.3%)
-    #[serde(default = "default_fee_rate")]
-    pub fee_rate: Decimal,
+    /// Swap fee rate in basis points (e.g., 30 = 0.3%)
+    #[serde(default = "default_fee_rate_bps")]
+    pub fee_rate_bps: i64,
     /// Initial reserve of token_a
     #[serde(default)]
-    pub initial_reserve_a: Option<Decimal>,
+    pub initial_reserve_a: Option<Value>,
     /// Initial reserve of token_b
     #[serde(default)]
-    pub initial_reserve_b: Option<Decimal>,
+    pub initial_reserve_b: Option<Value>,
 }
 
-fn default_fee_rate() -> Decimal {
-    Decimal::new(3, 3) // 0.003 = 0.3%
+fn default_fee_rate_bps() -> i64 {
+    30 // 0.3% = 30 bps
 }
 
 impl PoolConfig {
@@ -558,14 +557,14 @@ impl PoolConfig {
             token_a: token_a.to_string(),
             token_b: token_b.to_string(),
             amm_type: AmmType::ConstantProduct,
-            fee_rate: default_fee_rate(),
+            fee_rate_bps: default_fee_rate_bps(),
             initial_reserve_a: None,
             initial_reserve_b: None,
         }
     }
 
     /// With initial reserves
-    pub fn with_reserves(mut self, reserve_a: Decimal, reserve_b: Decimal) -> Self {
+    pub fn with_reserves(mut self, reserve_a: Value, reserve_b: Value) -> Self {
         self.initial_reserve_a = Some(reserve_a);
         self.initial_reserve_b = Some(reserve_b);
         self
@@ -669,7 +668,7 @@ mod tests {
                     "quote_asset": "USDT",
                     "instrument_type": "OPTION",
                     "option": {
-                        "strike": "50000",
+                        "strike": 50000,
                         "option_type": "CALL",
                         "expiration_ms": 1735257600000,
                         "exercise_style": "EUROPEAN"
@@ -709,8 +708,8 @@ mod tests {
                 {
                     "owner_id": "market-maker-1",
                     "deposits": [
-                        { "asset": "USDT", "amount": "1000000" },
-                        { "asset": "BTC", "amount": "100" }
+                        { "asset": "USDT", "amount": 1000000 },
+                        { "asset": "BTC", "amount": 100 }
                     ],
                     "fee_tier": 0
                 }
@@ -720,8 +719,8 @@ mod tests {
                     "symbol": "BTCUSDT",
                     "owner_id": "market-maker-1",
                     "side": "BUY",
-                    "price": "99000",
-                    "quantity": "10"
+                    "price": 99000,
+                    "quantity": 10
                 }
             ]
         }"#;

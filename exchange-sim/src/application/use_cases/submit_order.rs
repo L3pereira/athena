@@ -5,9 +5,8 @@ use crate::application::ports::{
 use crate::domain::{
     AccountError, Clock, DepthUpdateEvent, ExchangeEvent, Order, OrderAcceptedEvent,
     OrderFilledEvent, OrderStatus, OrderType, OrderValidator, PositionSide, Price, PriceLevel,
-    Quantity, Side, Symbol, TimeInForce, TradeExecutedEvent,
+    Quantity, Rate, Side, Symbol, TimeInForce, TradeExecutedEvent, Value,
 };
-use rust_decimal::Decimal;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -32,7 +31,7 @@ pub struct SubmitOrderResult {
 pub struct FillInfo {
     pub price: Price,
     pub quantity: Quantity,
-    pub commission: Quantity,
+    pub commission: Value,
 }
 
 pub struct SubmitOrderUseCase<C, A, OB, I, E, R>
@@ -184,7 +183,7 @@ where
             match command.side {
                 Side::Buy => {
                     // Need quote currency (e.g., USDT) to buy
-                    let required = order.quantity.inner() * order_price.inner();
+                    let required = order_price.mul_qty(order.quantity);
                     account
                         .lock(&quote_asset, required)
                         .map_err(OrderError::AccountError)?;
@@ -193,7 +192,8 @@ where
                     // Need base currency (e.g., BTC) to sell
                     // Check if user has the asset or has borrowed it
                     let balance = account.balance(&base_asset);
-                    if balance.available < order.quantity.inner() {
+                    let qty_value = Value::from_raw(order.quantity.raw() as i128);
+                    if balance.available.raw() < qty_value.raw() {
                         // Check if they have borrowed (short selling)
                         if !account.has_borrowed(&base_asset) {
                             return Err(OrderError::AccountError(
@@ -202,7 +202,7 @@ where
                         }
                     }
                     account
-                        .lock(&base_asset, order.quantity.inner())
+                        .lock(&base_asset, qty_value)
                         .map_err(OrderError::AccountError)?;
                 }
             }
@@ -215,36 +215,40 @@ where
         let mut fills = Vec::new();
         let (trades, remaining) = book.match_order(order.clone(), now);
 
-        // Calculate effective fee rates for this account
-        let (effective_maker_rate, effective_taker_rate) =
-            account.effective_fees(instrument.maker_fee_rate, instrument.taker_fee_rate);
+        // Calculate effective fee rates for this account (returns bps)
+        let (effective_maker_bps, effective_taker_bps) =
+            account.effective_fees(instrument.maker_fee_bps, instrument.taker_fee_bps);
+        let effective_maker_rate = Rate::from_bps(effective_maker_bps);
+        let effective_taker_rate = Rate::from_bps(effective_taker_bps);
 
         // Process trades and update account
         for trade in &trades {
-            let trade_value = trade.quantity.inner() * trade.price.inner();
+            let trade_value = trade.price.mul_qty(trade.quantity);
 
             // The aggressor (our order) is always the taker
             // Fee is calculated as notional * rate
-            let taker_fee = trade_value * effective_taker_rate;
-            let is_taker_rebate = effective_taker_rate < Decimal::ZERO;
+            let taker_fee = effective_taker_rate.apply_to_value(trade_value);
+            let is_taker_rebate = effective_taker_bps < 0;
 
             fills.push(FillInfo {
                 price: trade.price,
                 quantity: trade.quantity,
-                commission: Quantity::from(taker_fee.abs()),
+                commission: Value::from_raw(taker_fee.raw().abs()),
             });
 
             if self.enforce_balances {
+                let qty_value = Value::from_raw(trade.quantity.raw() as i128);
+
                 match command.side {
                     Side::Buy => {
                         // Bought base asset, spent quote asset
                         account.unlock(&quote_asset, trade_value);
                         account.withdraw(&quote_asset, trade_value).ok();
-                        account.deposit(&base_asset, trade.quantity.inner());
+                        account.deposit(&base_asset, qty_value);
 
                         // Apply taker fee (deduct from quote asset, or credit for rebate)
                         if is_taker_rebate {
-                            account.deposit(&quote_asset, taker_fee.abs());
+                            account.deposit(&quote_asset, Value::from_raw(taker_fee.raw().abs()));
                         } else {
                             account.withdraw(&quote_asset, taker_fee).ok();
                         }
@@ -255,19 +259,19 @@ where
                             PositionSide::Long,
                             trade.quantity,
                             trade.price,
-                            Decimal::ZERO, // Spot has no margin
+                            Value::ZERO, // Spot has no margin
                             now,
                         );
                     }
                     Side::Sell => {
                         // Sold base asset, received quote asset
-                        account.unlock(&base_asset, trade.quantity.inner());
-                        account.withdraw(&base_asset, trade.quantity.inner()).ok();
+                        account.unlock(&base_asset, qty_value);
+                        account.withdraw(&base_asset, qty_value).ok();
                         account.deposit(&quote_asset, trade_value);
 
                         // Apply taker fee (deduct from quote asset received, or credit for rebate)
                         if is_taker_rebate {
-                            account.deposit(&quote_asset, taker_fee.abs());
+                            account.deposit(&quote_asset, Value::from_raw(taker_fee.raw().abs()));
                         } else {
                             account.withdraw(&quote_asset, taker_fee).ok();
                         }
@@ -285,7 +289,7 @@ where
                                     PositionSide::Short,
                                     trade.quantity,
                                     trade.price,
-                                    Decimal::ZERO,
+                                    Value::ZERO,
                                     now,
                                 );
                             }
@@ -297,7 +301,7 @@ where
                                     PositionSide::Short,
                                     trade.quantity,
                                     trade.price,
-                                    Decimal::ZERO,
+                                    Value::ZERO,
                                     now,
                                 );
                             }
@@ -307,11 +311,8 @@ where
             }
 
             // Create trade with fee information
-            let trade_with_fees = trade.clone().with_fees(
-                trade_value * effective_maker_rate, // maker fee (for the resting order)
-                taker_fee,                          // taker fee (for our order)
-                &quote_asset,
-            );
+            let maker_fee = effective_maker_rate.apply_to_value(trade_value);
+            let trade_with_fees = trade.clone().with_fees(maker_fee, taker_fee, &quote_asset);
 
             // Publish trade event
             self.event_publisher
@@ -328,15 +329,17 @@ where
             if remaining_order.time_in_force.requires_immediate_execution() {
                 // IOC/FOK - cancel remaining, unlock funds
                 if self.enforce_balances {
-                    let remaining_qty = remaining_order.remaining_quantity().inner();
+                    let remaining_qty_value =
+                        Value::from_raw(remaining_order.remaining_quantity().raw() as i128);
                     match command.side {
                         Side::Buy => {
                             let order_price = remaining_order.price.unwrap_or(Price::ZERO);
-                            let remaining_value = remaining_qty * order_price.inner();
+                            let remaining_value =
+                                order_price.mul_qty(remaining_order.remaining_quantity());
                             account.unlock(&quote_asset, remaining_value);
                         }
                         Side::Sell => {
-                            account.unlock(&base_asset, remaining_qty);
+                            account.unlock(&base_asset, remaining_qty_value);
                         }
                     }
                 }
@@ -465,7 +468,6 @@ mod tests {
         BroadcastEventPublisher, InMemoryAccountRepository, InMemoryInstrumentRepository,
         InMemoryOrderBookRepository, SimulationClock, TokenBucketRateLimiter,
     };
-    use rust_decimal_macros::dec;
 
     async fn setup_test_env() -> (
         Arc<SimulationClock>,
@@ -511,8 +513,8 @@ mod tests {
             symbol: "BTCUSDT".to_string(),
             side: Side::Buy,
             order_type: OrderType::Limit,
-            quantity: Quantity::from(dec!(1)),
-            price: Some(Price::from(dec!(50000))),
+            quantity: Quantity::from_int(1),
+            price: Some(Price::from_int(50000)),
             stop_price: None,
             time_in_force: TimeInForce::Gtc,
             client_order_id: None,
@@ -534,7 +536,7 @@ mod tests {
         // Deposit USDT for buying
         {
             let mut account = account_repo.get_or_create("trader1").await;
-            account.deposit("USDT", dec!(100000));
+            account.deposit("USDT", Value::from_int(100000));
             account_repo.save(account).await;
         }
 
@@ -545,8 +547,8 @@ mod tests {
             let sell_order = Order::new_limit(
                 symbol,
                 Side::Sell,
-                Quantity::from(dec!(10)),
-                Price::from(dec!(50000)),
+                Quantity::from_int(10),
+                Price::from_int(50000),
                 TimeInForce::Gtc,
             );
             book.add_order(sell_order);
@@ -567,8 +569,8 @@ mod tests {
             symbol: "BTCUSDT".to_string(),
             side: Side::Buy,
             order_type: OrderType::Limit,
-            quantity: Quantity::from(dec!(1)),
-            price: Some(Price::from(dec!(50000))),
+            quantity: Quantity::from_int(1),
+            price: Some(Price::from_int(50000)),
             stop_price: None,
             time_in_force: TimeInForce::Gtc,
             client_order_id: None,
@@ -580,9 +582,9 @@ mod tests {
         // Check the account was updated
         let account = account_repo.get_by_owner("trader1").await.unwrap();
         // Should have BTC now
-        assert_eq!(account.balance("BTC").available, dec!(1));
+        assert_eq!(account.balance("BTC").available, Value::from_int(1));
         // Should have spent USDT (including taker fee: 50000 * 0.0002 = 10)
-        assert_eq!(account.balance("USDT").available, dec!(49990)); // 100000 - 50000 - 10 fee
+        assert_eq!(account.balance("USDT").available, Value::from_int(49990)); // 100000 - 50000 - 10 fee
     }
 
     #[tokio::test]
@@ -604,8 +606,8 @@ mod tests {
             symbol: "BTCUSDT".to_string(),
             side: Side::Sell,
             order_type: OrderType::Limit,
-            quantity: Quantity::from(dec!(1)),
-            price: Some(Price::from(dec!(50000))),
+            quantity: Quantity::from_int(1),
+            price: Some(Price::from_int(50000)),
             stop_price: None,
             time_in_force: TimeInForce::Gtc,
             client_order_id: None,
@@ -625,15 +627,15 @@ mod tests {
         {
             let mut account = account_repo.get_or_create("trader1").await;
             // Deposit USDT as collateral
-            account.deposit("USDT", dec!(100000));
+            account.deposit("USDT", Value::from_int(100000));
             // Borrow 1 BTC using USDT as collateral
             account
                 .borrow(
                     "BTC",
-                    dec!(1),     // borrow 1 BTC
-                    dec!(0.05),  // 5% annual interest
-                    "USDT",      // collateral asset
-                    dec!(60000), // collateral amount (120% of position)
+                    Value::from_int(1),     // borrow 1 BTC
+                    Rate::from_bps(500),    // 5% annual interest
+                    "USDT",                 // collateral asset
+                    Value::from_int(60000), // collateral amount (120% of position)
                     now,
                 )
                 .unwrap();
@@ -647,8 +649,8 @@ mod tests {
             let buy_order = Order::new_limit(
                 symbol,
                 Side::Buy,
-                Quantity::from(dec!(10)),
-                Price::from(dec!(50000)),
+                Quantity::from_int(10),
+                Price::from_int(50000),
                 TimeInForce::Gtc,
             );
             book.add_order(buy_order);
@@ -669,8 +671,8 @@ mod tests {
             symbol: "BTCUSDT".to_string(),
             side: Side::Sell,
             order_type: OrderType::Limit,
-            quantity: Quantity::from(dec!(1)),
-            price: Some(Price::from(dec!(50000))),
+            quantity: Quantity::from_int(1),
+            price: Some(Price::from_int(50000)),
             stop_price: None,
             time_in_force: TimeInForce::Gtc,
             client_order_id: None,
@@ -687,13 +689,13 @@ mod tests {
         let account = account_repo.get_by_owner("trader1").await.unwrap();
 
         // BTC was sold (borrowed, then sold)
-        assert_eq!(account.balance("BTC").available, dec!(0));
-        assert_eq!(account.balance("BTC").borrowed, dec!(1)); // Still owe 1 BTC
+        assert_eq!(account.balance("BTC").available, Value::ZERO);
+        assert_eq!(account.balance("BTC").borrowed, Value::from_int(1)); // Still owe 1 BTC
 
         // Received USDT from sale
         // Started with 100000, locked 60000 as collateral, received 50000 from sale, minus taker fee
         // Available = 100000 - 60000 + 50000 - 10 fee = 89990
-        assert_eq!(account.balance("USDT").available, dec!(89990));
+        assert_eq!(account.balance("USDT").available, Value::from_int(89990));
 
         // Should have a short position tracked
         let symbol = Symbol::new("BTCUSDT").unwrap();
@@ -701,7 +703,7 @@ mod tests {
         assert!(position.is_some(), "Should have a short position");
         let pos = position.unwrap();
         assert_eq!(pos.side, PositionSide::Short);
-        assert_eq!(pos.quantity, Quantity::from(dec!(1)));
+        assert_eq!(pos.quantity, Quantity::from_int(1));
     }
 
     #[tokio::test]
@@ -716,8 +718,8 @@ mod tests {
             let sell_order = Order::new_limit(
                 symbol,
                 Side::Sell,
-                Quantity::from(dec!(10)),
-                Price::from(dec!(50000)),
+                Quantity::from_int(10),
+                Price::from_int(50000),
                 TimeInForce::Gtc,
             );
             book.add_order(sell_order);
@@ -739,8 +741,8 @@ mod tests {
             symbol: "BTCUSDT".to_string(),
             side: Side::Buy,
             order_type: OrderType::Limit,
-            quantity: Quantity::from(dec!(1)),
-            price: Some(Price::from(dec!(50000))),
+            quantity: Quantity::from_int(1),
+            price: Some(Price::from_int(50000)),
             stop_price: None,
             time_in_force: TimeInForce::Gtc,
             client_order_id: None,

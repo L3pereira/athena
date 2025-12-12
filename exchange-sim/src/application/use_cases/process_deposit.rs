@@ -16,8 +16,7 @@ use crate::application::ports::{
     EventPublisher, ProcessedDepositTracker,
 };
 use crate::domain::services::{Clock, TxId};
-use crate::domain::value_objects::Timestamp;
-use rust_decimal::Decimal;
+use crate::domain::value_objects::{Timestamp, Value};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -66,7 +65,7 @@ pub struct Deposit {
     pub tx_id: TxId,
     pub owner_id: String,
     pub asset: String,
-    pub amount: Decimal,
+    pub amount: Value,
     pub status: DepositStatus,
     pub deposit_address: String,
     pub detected_at: Timestamp,
@@ -270,7 +269,7 @@ pub struct DepositCreditedEvent {
     pub deposit_id: DepositId,
     pub owner_id: String,
     pub asset: String,
-    pub amount: Decimal,
+    pub amount: Value,
     pub tx_id: TxId,
     pub timestamp: Timestamp,
 }
@@ -310,7 +309,6 @@ mod tests {
         InMemoryDepositAddressRegistry, InMemoryProcessedDepositTracker, SimulationClock,
     };
     use chrono::Duration;
-    use rust_decimal_macros::dec;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -381,7 +379,7 @@ mod tests {
                 "0xexternal",
                 &address.address,
                 "ETH",
-                dec!(1.5),
+                Value::from_f64(1.5),
                 clock.now(),
             )
             .unwrap();
@@ -395,12 +393,12 @@ mod tests {
         let result = use_case.process_deposits().await.unwrap();
 
         assert_eq!(result.processed_count, 1);
-        assert_eq!(result.credited_deposits[0].amount, dec!(1.5));
+        assert_eq!(result.credited_deposits[0].amount, Value::from_f64(1.5));
         assert_eq!(result.credited_deposits[0].asset, "ETH");
 
         // Verify account was credited
         let account = use_case.account_repo.get_by_owner("user1").await.unwrap();
-        assert_eq!(account.balance("ETH").available, dec!(1.5));
+        assert_eq!(account.balance("ETH").available, Value::from_f64(1.5));
     }
 
     #[tokio::test]
@@ -420,7 +418,7 @@ mod tests {
                 "0xexternal",
                 &address.address,
                 "ETH",
-                dec!(1.0),
+                Value::from_f64(1.0),
                 clock.now(),
             )
             .unwrap();
@@ -438,6 +436,6 @@ mod tests {
 
         // Account should only have 1.0, not 2.0
         let account = use_case.account_repo.get_by_owner("user1").await.unwrap();
-        assert_eq!(account.balance("ETH").available, dec!(1.0));
+        assert_eq!(account.balance("ETH").available, Value::from_f64(1.0));
     }
 }

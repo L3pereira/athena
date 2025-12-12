@@ -111,7 +111,6 @@ impl CustodianWriter for InMemoryCustodianRepository {
 mod tests {
     use super::*;
     use crate::domain::{CustodianType, WithdrawalConfig};
-    use rust_decimal_macros::dec;
 
     #[tokio::test]
     async fn test_create_and_get() {
@@ -143,11 +142,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_supporting_asset() {
+        use crate::domain::Value;
         let repo = InMemoryCustodianRepository::new();
 
         let config = WithdrawalConfig::new("USDT", Network::Ethereum)
-            .with_fee(dec!(5))
-            .with_min_amount(dec!(10));
+            .with_fee(Value::from_int(5))
+            .with_min_amount(Value::from_int(10));
 
         let custodian = Custodian::new("USDT Wallet", CustodianType::HotWallet, Network::Ethereum)
             .with_withdrawal_config(config);

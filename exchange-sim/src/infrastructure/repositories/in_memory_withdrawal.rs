@@ -81,16 +81,15 @@ impl WithdrawalWriter for InMemoryWithdrawalRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::Network;
-    use rust_decimal_macros::dec;
+    use crate::domain::{Network, Value};
     use uuid::Uuid;
 
     fn make_withdrawal(account_id: AccountId) -> WithdrawalRequest {
         WithdrawalRequest::new(
             account_id,
             "USDT",
-            dec!(100),
-            dec!(5),
+            Value::from_int(100),
+            Value::from_int(5),
             Network::Ethereum,
             "0x1234567890abcdef1234567890abcdef12345678",
         )
@@ -107,7 +106,7 @@ mod tests {
         repo.save(withdrawal).await;
 
         let retrieved = repo.get(&id).await.unwrap();
-        assert_eq!(retrieved.amount, dec!(100));
+        assert_eq!(retrieved.amount, Value::from_int(100));
     }
 
     #[tokio::test]

@@ -52,11 +52,11 @@ fn test_same_symbol_different_exchanges() {
     assert!(kraken_book.is_initialized());
 
     // Verify prices are different (proving they're separate books)
-    assert_eq!(binance_book.best_bid().unwrap().price.to_string(), "50000");
-    assert_eq!(kraken_book.best_bid().unwrap().price.to_string(), "50020");
+    assert_eq!(binance_book.best_bid().unwrap().price.to_f64(), 50000.0);
+    assert_eq!(kraken_book.best_bid().unwrap().price.to_f64(), 50020.0);
 
-    assert_eq!(binance_book.best_ask().unwrap().price.to_string(), "50010");
-    assert_eq!(kraken_book.best_ask().unwrap().price.to_string(), "50030");
+    assert_eq!(binance_book.best_ask().unwrap().price.to_f64(), 50010.0);
+    assert_eq!(kraken_book.best_ask().unwrap().price.to_f64(), 50030.0);
 
     // Verify symbols() returns both qualified symbols
     assert_eq!(order_books.symbols().len(), 2);
@@ -104,8 +104,8 @@ fn test_multiple_symbols_across_exchanges() {
     assert!(btc_book.is_initialized());
     assert!(eth_book.is_initialized());
 
-    assert_eq!(btc_book.best_bid().unwrap().price.to_string(), "50000");
-    assert_eq!(eth_book.best_bid().unwrap().price.to_string(), "3000");
+    assert_eq!(btc_book.best_bid().unwrap().price.to_f64(), 50000.0);
+    assert_eq!(eth_book.best_bid().unwrap().price.to_f64(), 3000.0);
 
     // Verify exchange-specific queries
     assert_eq!(order_books.symbols_for_exchange(&binance), vec!["BTCUSDT"]);
@@ -146,7 +146,7 @@ fn test_apply_update_with_exchange_id() {
 
     // Verify update was applied
     let book = order_books.book("binance", "BTCUSDT");
-    assert_eq!(book.best_bid().unwrap().quantity.to_string(), "2.0");
+    assert_eq!(book.best_bid().unwrap().quantity.to_f64(), 2.0);
     assert_eq!(book.last_update_id(), 102);
 }
 
@@ -182,7 +182,7 @@ fn test_update_wrong_exchange_fails() {
 
     // Binance book should be unchanged
     let binance_book = order_books.book("binance", "BTCUSDT");
-    assert_eq!(binance_book.best_bid().unwrap().quantity.to_string(), "1.0");
+    assert_eq!(binance_book.best_bid().unwrap().quantity.to_f64(), 1.0);
 }
 
 #[test]
@@ -222,9 +222,10 @@ fn test_arbitrage_detection_across_exchanges() {
     let kraken_bid = kraken_book.best_bid().unwrap().price;
 
     // Arbitrage exists: buy on Binance at 50010, sell on Kraken at 50020 = $10 profit
-    let spread = kraken_bid.inner() - binance_ask.inner();
-    assert!(spread > rust_decimal::Decimal::ZERO);
-    assert_eq!(spread.to_string(), "10");
+    let spread_raw = kraken_bid.raw() - binance_ask.raw();
+    assert!(spread_raw > 0);
+    // 10 * PRICE_SCALE = 10 * 100_000_000 = 1_000_000_000
+    assert_eq!(spread_raw, 1_000_000_000);
 }
 
 #[test]

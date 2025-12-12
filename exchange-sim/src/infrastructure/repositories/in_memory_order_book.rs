@@ -107,7 +107,6 @@ impl OrderLookup for InMemoryOrderBookRepository {
 mod tests {
     use super::*;
     use crate::domain::{Price, Quantity, Side, TimeInForce};
-    use rust_decimal_macros::dec;
 
     #[tokio::test]
     async fn test_get_or_create() {
@@ -129,8 +128,8 @@ mod tests {
         let order = Order::new_limit(
             symbol.clone(),
             Side::Buy,
-            Quantity::from(dec!(1)),
-            Price::from(dec!(100)),
+            Quantity::from_int(1),
+            Price::from_int(100),
             TimeInForce::Gtc,
         );
         book.add_order(order);

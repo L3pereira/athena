@@ -3,8 +3,7 @@
 //! Handles token swaps through liquidity pools.
 
 use crate::application::ports::{AccountRepository, EventPublisher, PoolReader, PoolWriter};
-use crate::domain::{Clock, ExchangeEvent, PoolError, SwapResult};
-use rust_decimal::Decimal;
+use crate::domain::{Clock, ExchangeEvent, PoolError, Price, SwapResult, Value};
 use std::sync::Arc;
 
 /// Command to execute a swap
@@ -15,17 +14,17 @@ pub struct SwapCommand {
     /// Token being bought
     pub token_out: String,
     /// Amount of token_in to swap
-    pub amount_in: Decimal,
+    pub amount_in: Value,
     /// Minimum amount of token_out to receive (slippage protection)
-    pub min_amount_out: Decimal,
+    pub min_amount_out: Value,
 }
 
 /// Result of a swap execution
 #[derive(Debug, Clone)]
 pub struct SwapExecutionResult {
     pub swap_result: SwapResult,
-    pub new_reserve_in: Decimal,
-    pub new_reserve_out: Decimal,
+    pub new_reserve_in: Value,
+    pub new_reserve_out: Value,
 }
 
 /// Use case for executing swaps
@@ -77,7 +76,7 @@ where
 
         // Check user has enough of input token
         let balance = account.balance(&command.token_in);
-        if balance.available < command.amount_in {
+        if balance.available.raw() < command.amount_in.raw() {
             return Err(SwapUseCaseError::InsufficientBalance {
                 available: balance.available,
                 requested: command.amount_in,
@@ -127,7 +126,7 @@ where
             amount_in: command.amount_in,
             amount_out: swap_result.amount_out,
             fee_amount: swap_result.fee_amount,
-            price_impact: swap_result.price_impact,
+            price_impact_bps: swap_result.price_impact_bps,
             timestamp: self.clock.now_millis(),
         };
         self.event_publisher
@@ -160,7 +159,7 @@ where
         Ok(SwapQuote {
             amount_out: output.amount_out,
             fee_amount: output.fee_amount,
-            price_impact: output.price_impact,
+            price_impact_bps: output.price_impact_bps,
             effective_price: output.effective_price,
         })
     }
@@ -169,10 +168,10 @@ where
 /// Quote for a potential swap
 #[derive(Debug, Clone)]
 pub struct SwapQuote {
-    pub amount_out: Decimal,
-    pub fee_amount: Decimal,
-    pub price_impact: Decimal,
-    pub effective_price: Decimal,
+    pub amount_out: Value,
+    pub fee_amount: Value,
+    pub price_impact_bps: i64,
+    pub effective_price: Price,
 }
 
 /// Event emitted when a swap is executed
@@ -181,10 +180,10 @@ pub struct SwapExecutedEvent {
     pub pool_id: crate::domain::PoolId,
     pub token_in: String,
     pub token_out: String,
-    pub amount_in: Decimal,
-    pub amount_out: Decimal,
-    pub fee_amount: Decimal,
-    pub price_impact: Decimal,
+    pub amount_in: Value,
+    pub amount_out: Value,
+    pub fee_amount: Value,
+    pub price_impact_bps: i64,
     pub timestamp: i64,
 }
 
@@ -192,14 +191,8 @@ pub struct SwapExecutedEvent {
 #[derive(Debug, Clone)]
 pub enum SwapUseCaseError {
     AccountNotFound,
-    PoolNotFound {
-        token_a: String,
-        token_b: String,
-    },
-    InsufficientBalance {
-        available: Decimal,
-        requested: Decimal,
-    },
+    PoolNotFound { token_a: String, token_b: String },
+    InsufficientBalance { available: Value, requested: Value },
     PoolError(PoolError),
     AccountError(String),
 }
@@ -218,7 +211,8 @@ impl std::fmt::Display for SwapUseCaseError {
                 write!(
                     f,
                     "Insufficient balance: {} available, {} requested",
-                    available, requested
+                    available.to_f64(),
+                    requested.to_f64()
                 )
             }
             SwapUseCaseError::PoolError(e) => write!(f, "Pool error: {}", e),

@@ -8,12 +8,11 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::application::ports::AccountRepository;
-use crate::domain::{Clock, FeeSchedule, Symbol, TradingPairConfig};
+use crate::domain::{Clock, FeeSchedule, Price, Quantity, Symbol, TradingPairConfig, Value};
 use crate::presentation::rest::router::AppState;
 
 // ============================================================================
@@ -32,7 +31,7 @@ pub struct CreateAccountRequest {
 #[derive(Debug, Deserialize)]
 pub struct DepositRequest {
     pub asset: String,
-    pub amount: Decimal,
+    pub amount: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,8 +45,8 @@ pub struct AccountResponse {
 #[derive(Debug, Serialize)]
 pub struct BalanceResponse {
     pub asset: String,
-    pub available: Decimal,
-    pub locked: Decimal,
+    pub available: f64,
+    pub locked: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,13 +55,13 @@ pub struct CreateMarketRequest {
     pub base_asset: String,
     pub quote_asset: String,
     #[serde(default)]
-    pub maker_fee_bps: Option<i32>,
+    pub maker_fee_bps: Option<i64>,
     #[serde(default)]
-    pub taker_fee_bps: Option<i32>,
+    pub taker_fee_bps: Option<i64>,
     #[serde(default)]
-    pub tick_size: Option<Decimal>,
+    pub tick_size: Option<f64>,
     #[serde(default)]
-    pub lot_size: Option<Decimal>,
+    pub lot_size: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,10 +69,10 @@ pub struct MarketResponse {
     pub symbol: String,
     pub base_asset: String,
     pub quote_asset: String,
-    pub maker_fee_bps: Decimal,
-    pub taker_fee_bps: Decimal,
-    pub tick_size: Decimal,
-    pub lot_size: Decimal,
+    pub maker_fee_bps: i64,
+    pub taker_fee_bps: i64,
+    pub tick_size: f64,
+    pub lot_size: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,7 +93,7 @@ pub async fn create_account<C: Clock>(
 
     // Apply deposits
     for deposit in &req.deposits {
-        account.deposit(&deposit.asset, deposit.amount);
+        account.deposit(&deposit.asset, Value::from_f64(deposit.amount));
     }
 
     // Set fee tier
@@ -110,8 +109,8 @@ pub async fn create_account<C: Clock>(
             let bal = account.balance(&d.asset);
             BalanceResponse {
                 asset: d.asset.clone(),
-                available: bal.available,
-                locked: bal.locked,
+                available: bal.available.to_f64(),
+                locked: bal.locked.to_f64(),
             }
         })
         .collect();
@@ -135,13 +134,13 @@ pub async fn deposit<C: Clock>(
     Json(req): Json<DepositRequest>,
 ) -> Result<(StatusCode, Json<BalanceResponse>), (StatusCode, Json<ErrorResponse>)> {
     let mut account = state.account_repo.get_or_create(&owner_id).await;
-    account.deposit(&req.asset, req.amount);
+    account.deposit(&req.asset, Value::from_f64(req.amount));
 
     let bal = account.balance(&req.asset);
     let response = BalanceResponse {
         asset: req.asset,
-        available: bal.available,
-        locked: bal.locked,
+        available: bal.available.to_f64(),
+        locked: bal.locked.to_f64(),
     };
 
     state.account_repo.save(account).await;
@@ -171,8 +170,8 @@ pub async fn get_account<C: Clock>(
         .all_balances()
         .map(|(asset, bal)| BalanceResponse {
             asset: asset.clone(),
-            available: bal.available,
-            locked: bal.locked,
+            available: bal.available.to_f64(),
+            locked: bal.locked.to_f64(),
         })
         .collect();
 
@@ -221,28 +220,26 @@ pub async fn create_market<C: Clock>(
 
     // Apply custom fees (bps = basis points, 1 bps = 0.0001)
     if let Some(maker_bps) = req.maker_fee_bps {
-        let rate = Decimal::new(maker_bps.into(), 4);
-        config = config.with_maker_fee(rate);
+        config = config.with_maker_fee_bps(maker_bps);
     }
     if let Some(taker_bps) = req.taker_fee_bps {
-        let rate = Decimal::new(taker_bps.into(), 4);
-        config = config.with_taker_fee(rate);
+        config = config.with_taker_fee_bps(taker_bps);
     }
     if let Some(tick) = req.tick_size {
-        config = config.with_tick_size(crate::domain::Price::from(tick));
+        config = config.with_tick_size(Price::from_f64(tick));
     }
     if let Some(lot) = req.lot_size {
-        config = config.with_lot_size(crate::domain::Quantity::from(lot));
+        config = config.with_lot_size(Quantity::from_f64(lot));
     }
 
     let response = MarketResponse {
         symbol: config.symbol.to_string(),
         base_asset: config.base_asset.clone(),
         quote_asset: config.quote_asset.clone(),
-        maker_fee_bps: config.maker_fee_rate * Decimal::new(10000, 0),
-        taker_fee_bps: config.taker_fee_rate * Decimal::new(10000, 0),
-        tick_size: config.tick_size.inner(),
-        lot_size: config.lot_size.inner(),
+        maker_fee_bps: config.maker_fee_bps,
+        taker_fee_bps: config.taker_fee_bps,
+        tick_size: config.tick_size.to_f64(),
+        lot_size: config.lot_size.to_f64(),
     };
 
     state.instrument_repo.add(config);
@@ -262,10 +259,10 @@ pub async fn list_markets<C: Clock>(
             symbol: config.symbol.to_string(),
             base_asset: config.base_asset.clone(),
             quote_asset: config.quote_asset.clone(),
-            maker_fee_bps: config.maker_fee_rate * Decimal::new(10000, 0),
-            taker_fee_bps: config.taker_fee_rate * Decimal::new(10000, 0),
-            tick_size: config.tick_size.inner(),
-            lot_size: config.lot_size.inner(),
+            maker_fee_bps: config.maker_fee_bps,
+            taker_fee_bps: config.taker_fee_bps,
+            tick_size: config.tick_size.to_f64(),
+            lot_size: config.lot_size.to_f64(),
         })
         .collect();
 
@@ -299,9 +296,9 @@ pub async fn get_market<C: Clock>(
         symbol: config.symbol.to_string(),
         base_asset: config.base_asset.clone(),
         quote_asset: config.quote_asset.clone(),
-        maker_fee_bps: config.maker_fee_rate * Decimal::new(10000, 0),
-        taker_fee_bps: config.taker_fee_rate * Decimal::new(10000, 0),
-        tick_size: config.tick_size.inner(),
-        lot_size: config.lot_size.inner(),
+        maker_fee_bps: config.maker_fee_bps,
+        taker_fee_bps: config.taker_fee_bps,
+        tick_size: config.tick_size.to_f64(),
+        lot_size: config.lot_size.to_f64(),
     }))
 }
