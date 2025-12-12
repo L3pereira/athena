@@ -3,7 +3,9 @@ resolver = "2"
 members = [
     "exchange-sim",
     "trading-core",
-    "agent",
+    "trading-infra/transport",
+    "trading-infra/gateway",
+    "trading-infra/strategy",
 ]
 
 [workspace.package]
@@ -34,6 +36,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Concurrency
 dashmap = "6.1"
+crossbeam-channel = "0.5"
 
 # Data structures
 priority-queue = "2.3.1"

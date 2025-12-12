@@ -1,5 +1,6 @@
 pub mod entities;
 pub mod events;
+pub mod messages;
 pub mod stats;
 pub mod value_objects;
 
@@ -20,3 +21,9 @@ pub use events::{
 
 // Re-export stats at crate root
 pub use stats::{Ema, RollingStats};
+
+// Re-export messages at crate root for IPC
+pub use messages::{
+    CompactLevel, DepthUpdate, ExchangeId, OrderBookSnapshot, QualifiedSymbol, SignalMessage,
+    SnapshotRequest, TradeUpdate,
+};

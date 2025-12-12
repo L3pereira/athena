@@ -1,0 +1,30 @@
+[package]
+name = "transport"
+version.workspace = true
+edition.workspace = true
+description = "Abstract transport layer for IPC communication"
+
+[features]
+default = ["channel"]
+channel = ["crossbeam-channel"]
+aeron = []  # Reliable messaging via Aeron IPC/UDP
+
+[dependencies]
+# Serialization
+serde = { workspace = true }
+bincode = "1.3"
+
+# Channel transport (default)
+crossbeam-channel = { workspace = true, optional = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# JSON for config
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

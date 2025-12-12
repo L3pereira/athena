@@ -1,0 +1,44 @@
+[package]
+name = "gateway"
+version.workspace = true
+edition.workspace = true
+description = "Market data gateway with exchange connections"
+
+[dependencies]
+# Workspace crates
+trading-core = { path = "../../trading-core" }
+transport = { path = "../transport" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# WebSocket/HTTP
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = "1.3"
+
+# Concurrency
+arc-swap = "1.7"
+dashmap = { workspace = true }
+parking_lot = "0.12"
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = "1.0"
+async-trait = "0.1"
+
+# URL handling
+url = "2.5"
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "gateway"
+path = "src/main.rs"
