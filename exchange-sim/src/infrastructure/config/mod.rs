@@ -443,6 +443,14 @@ pub struct AccountConfig {
     /// Fee tier (0-9)
     #[serde(default)]
     pub fee_tier: Option<u8>,
+    /// Simulated latency for receiving market data events (microseconds)
+    /// Lower values simulate colocation advantage
+    #[serde(default)]
+    pub event_latency_us: Option<u64>,
+    /// Simulated latency for orders reaching the matching engine (microseconds)
+    /// Lower values simulate colocation advantage
+    #[serde(default)]
+    pub order_latency_us: Option<u64>,
 }
 
 /// Deposit configuration
@@ -732,5 +740,65 @@ mod tests {
         assert_eq!(config.markets.len(), 1);
         assert_eq!(config.accounts.len(), 1);
         assert_eq!(config.seed_orders.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_account_with_latency() {
+        let json = r#"{
+            "accounts": [
+                {
+                    "owner_id": "colocated-hft",
+                    "deposits": [
+                        { "asset": "USDT", "amount": 1000000 }
+                    ],
+                    "event_latency_us": 50,
+                    "order_latency_us": 100
+                },
+                {
+                    "owner_id": "retail-trader",
+                    "deposits": [
+                        { "asset": "USDT", "amount": 10000 }
+                    ],
+                    "event_latency_us": 5000,
+                    "order_latency_us": 10000
+                }
+            ]
+        }"#;
+
+        let config = SimulatorConfig::from_json(json).unwrap();
+        assert_eq!(config.accounts.len(), 2);
+
+        // HFT with low latency (colocation advantage)
+        let hft = &config.accounts[0];
+        assert_eq!(hft.owner_id, "colocated-hft");
+        assert_eq!(hft.event_latency_us, Some(50));
+        assert_eq!(hft.order_latency_us, Some(100));
+
+        // Retail with high latency (internet connection)
+        let retail = &config.accounts[1];
+        assert_eq!(retail.owner_id, "retail-trader");
+        assert_eq!(retail.event_latency_us, Some(5000));
+        assert_eq!(retail.order_latency_us, Some(10000));
+    }
+
+    #[test]
+    fn test_parse_account_without_latency() {
+        let json = r#"{
+            "accounts": [
+                {
+                    "owner_id": "default-trader",
+                    "deposits": [
+                        { "asset": "USDT", "amount": 1000 }
+                    ]
+                }
+            ]
+        }"#;
+
+        let config = SimulatorConfig::from_json(json).unwrap();
+        let account = &config.accounts[0];
+
+        // Latency should be None when not specified
+        assert_eq!(account.event_latency_us, None);
+        assert_eq!(account.order_latency_us, None);
     }
 }

@@ -7,6 +7,8 @@ members = [
     "trading-infra/transport",
     "trading-infra/gateway",
     "trading-infra/strategy",
+    "trading-infra/execution",
+    "trading-infra/risk-management",
 ]
 
 [workspace.package]

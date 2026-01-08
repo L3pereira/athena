@@ -1,0 +1,21 @@
+[package]
+name = "execution"
+version.workspace = true
+edition.workspace = true
+description = "Execution and impact models for trading systems"
+
+[dependencies]
+# Workspace crates
+trading-core = { path = "../../trading-core" }
+
+# Serialization
+serde = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+[dev-dependencies]
+approx = "0.5"

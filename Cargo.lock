@@ -663,6 +663,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "execution"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "chrono",
+ "serde",
+ "thiserror 1.0.69",
+ "trading-core",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1869,6 +1880,18 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "risk-management"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "chrono",
+ "execution",
+ "serde",
+ "thiserror 1.0.69",
+ "trading-core",
 ]
 
 [[package]]

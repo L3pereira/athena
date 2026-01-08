@@ -1,0 +1,25 @@
+[package]
+name = "risk-management"
+version.workspace = true
+edition.workspace = true
+description = "Risk management, regime detection, and market making models"
+
+[dependencies]
+# Workspace crates
+trading-core = { path = "../../trading-core" }
+execution = { path = "../execution" }
+
+# Serialization
+serde = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# Statistics
+# Using standard library for now, can add statrs if needed
+
+[dev-dependencies]
+approx = "0.5"
