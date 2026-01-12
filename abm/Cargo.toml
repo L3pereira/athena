@@ -11,6 +11,18 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 trading-core = { path = "../trading-core" }
+exchange-sim = { path = "../exchange-sim" }
+risk-management = { path = "../trading-infra/risk-management" }
+
+# Time handling
+chrono = "0.4"
+
+# Async runtime
+tokio = { version = "1", features = ["sync", "rt"] }
+async-trait = "0.1"
+
+# Thread-safe utilities
+parking_lot = "0.12"
 
 # Random number generation
 rand = "0.8"

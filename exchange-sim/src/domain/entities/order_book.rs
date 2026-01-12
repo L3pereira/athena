@@ -297,10 +297,10 @@ impl OrderBook {
         let ask_price = Price::from_raw(ask_key.price);
 
         // Check if order can match (for limit orders, check price)
-        if let Some(limit_price) = order_price
-            && limit_price < ask_price
-        {
-            return Vec::new();
+        if let Some(limit_price) = order_price {
+            if limit_price < ask_price {
+                return Vec::new();
+            }
         }
 
         let Some(ask_queue) = self.asks.get_mut(&ask_key) else {
@@ -332,10 +332,10 @@ impl OrderBook {
         }
 
         // Clean up empty price level
-        if let Some(queue) = self.asks.get(&ask_key)
-            && queue.is_empty()
-        {
-            self.asks.remove(&ask_key);
+        if let Some(queue) = self.asks.get(&ask_key) {
+            if queue.is_empty() {
+                self.asks.remove(&ask_key);
+            }
         }
 
         result.trades
@@ -352,10 +352,10 @@ impl OrderBook {
         let bid_price = Price::from_raw(bid_key.price);
 
         // Check if order can match (for limit orders, check price)
-        if let Some(limit_price) = order_price
-            && limit_price > bid_price
-        {
-            return Vec::new();
+        if let Some(limit_price) = order_price {
+            if limit_price > bid_price {
+                return Vec::new();
+            }
         }
 
         let Some(bid_queue) = self.bids.get_mut(&bid_key) else {
@@ -387,10 +387,10 @@ impl OrderBook {
         }
 
         // Clean up empty price level
-        if let Some(queue) = self.bids.get(&bid_key)
-            && queue.is_empty()
-        {
-            self.bids.remove(&bid_key);
+        if let Some(queue) = self.bids.get(&bid_key) {
+            if queue.is_empty() {
+                self.bids.remove(&bid_key);
+            }
         }
 
         result.trades

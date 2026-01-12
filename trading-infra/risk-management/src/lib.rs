@@ -38,8 +38,10 @@ pub use application::manipulation::{
 pub use application::market_making::{
     AvellanedaStoikov, InventorySkew, QuotingModel, ToxicFlowDetector,
 };
+pub use application::ports::{ReferenceFeed, ReferenceTick};
 pub use application::reflexive::{CircuitBreaker, CircuitState, ReflexiveEvent, ReflexiveLoop};
 pub use application::regime_detection::{MomentBasedDetector, RegimeDetector, RegimeShiftDetector};
 pub use domain::{
-    Inventory, MarketRegime, OrderbookMoments, Quote, RegimeShift, ToxicityLevel, ToxicityMetrics,
+    Inventory, MarketRegime, OrderbookMoments, PnL, Quote, RegimeShift, ToxicityLevel,
+    ToxicityMetrics,
 };
